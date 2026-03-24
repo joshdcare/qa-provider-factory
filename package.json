@@ -1,0 +1,32 @@
+{
+  "name": "qa-provider-factory",
+  "version": "1.0.0",
+  "description": "CLI tool to create providers at specific enrollment checkpoints",
+  "type": "module",
+  "bin": {
+    "qa-provider-factory": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node --no-warnings dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "mysql2": "^3.20.0",
+    "nanoid": "^5.1.7",
+    "playwright": "^1.58.2",
+    "stripe": "^20.4.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^3.2.4"
+  }
+}
