@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-23
 **Author:** Josh Davis
-**Status:** Draft
+**Status:** Review
 
 ## Problem
 
@@ -46,6 +46,9 @@ npx qa-provider-factory --step <step> [--tier basic|premium] [--vertical childca
 ## Enrollment Steps
 
 Each step is cumulative — it includes all API calls from previous steps.
+
+**Important: Step order vs. `GQLProviderActions.createNewProvider()`.**
+The step ordering in this spec reflects the intended UI enrollment flow checkpoints, NOT the API call sequence in `createNewProvider()`. The reference implementation in `qa-playwright` calls APIs in a different order (e.g., availability/biography happen after upgrade and SSN steps). This spec intentionally reorders calls to match where a user would be in the UI at each checkpoint. Based on the existing `qa-playwright` tests calling these APIs in varying orders successfully, individual API calls are believed to have no server-enforced ordering dependencies after account creation. This assumption should be validated during implementation by testing each checkpoint end-to-end. If a dependency is discovered, the step ordering can be adjusted.
 
 ### Step 1: `account-created`
 
@@ -144,7 +147,10 @@ qa-provider-factory/
 │   ├── types.ts              # Shared types (Step enum, ProviderResult, Config)
 │   ├── api/
 │   │   ├── client.ts         # Thin fetch wrapper (base URL, headers, retry logic)
+│   │   │                     #   GraphQL endpoint: POST {baseUrl}/api/graphql
+│   │   │                     #   REST endpoints: various paths under {baseUrl}/platform/spi/
 │   │   ├── auth.ts           # Token acquisition (authToken from create, accessToken via OIDC)
+│   │   │                     #   Requires: npx playwright install chromium (Phase 1)
 │   │   ├── graphql.ts        # All GraphQL mutation/query strings
 │   │   └── rest.ts           # REST/SPI endpoint call functions
 │   ├── steps/
@@ -195,11 +201,25 @@ Step functions receive the loaded payload module, so they're vertical-agnostic.
 The tool needs two types of tokens:
 
 1. **authToken** — returned by `providerCreate`, used for REST/SPI endpoints via `X-Care.com-AuthToken` header
-2. **accessToken** — OIDC Bearer token, used for GraphQL endpoints via `Authorization` header
+2. **accessToken** — OIDC Bearer token, used for GraphQL endpoints via `Authorization` header with `Pragma: crcm-x-authorized`
 
-The `authToken` is available immediately from account creation. The `accessToken` currently requires an OIDC browser login flow (the existing `getAccessToken` in qa-playwright launches headless Chromium).
+The `authToken` is available immediately from account creation.
 
-**Strategy:** Investigate whether a direct OAuth2 password-grant endpoint exists for the dev environment. If so, use it (preferred — no browser dependency). If not, fall back to a lightweight headless browser auth call isolated in `auth.ts`.
+The `accessToken` is harder. The existing `qa-playwright` framework gets it by launching headless Chromium, navigating to the OIDC client page (`/app/id-oidc-client/index.html`), logging in, and intercepting the `Authorization` header from a network request.
+
+**When each token is needed:**
+
+- `authToken` — available immediately from `providerCreate`. Used for all REST/SPI calls. Sufficient for the `account-created` step on its own.
+- `accessToken` — needed starting at `at-availability` (Step 2) for GraphQL mutations that require `Authorization` + `Pragma: crcm-x-authorized`. NOT needed for `account-created`, because `providerCreate` itself only uses `Pragma: crcm-x-authorized` without a Bearer token.
+
+The access token is acquired lazily: only fetched when the first post-creation GraphQL call is about to run. This means `--step account-created` has zero Playwright dependency.
+
+**Strategy (two-phase):**
+
+1. **Phase 1 (MVP):** Use Playwright as a lightweight dev dependency solely for the OIDC token acquisition, isolated in `auth.ts`. This mirrors what `qa-playwright` already does and is proven to work. The rest of the CLI uses plain `fetch` — Playwright is not used for any API calls. Only invoked when `--step` is `at-availability` or later.
+2. **Phase 2 (optimization):** If a direct OAuth2 Resource Owner Password Credentials (ROPC) grant endpoint is available in the dev identity provider, replace the Playwright-based auth with a direct HTTP call. This eliminates the browser dependency entirely. This is a follow-up improvement, not a blocker for v1.
+
+The auth module exports a single function: `getAccessToken(email: string, baseUrl: string): Promise<string>`. Swapping Phase 1 for Phase 2 changes only the internals of `auth.ts`.
 
 ## Environment Configuration
 
@@ -209,6 +229,13 @@ const ENV_CONFIG = {
     baseUrl: 'https://www.dev.carezen.net',
     apiKey: process.env.CZEN_API_KEY,
     stripeKey: process.env.STRIPE_KEY,
+    sterlingCallbackUrl: 'https://safety-background-check.useast1.dev.omni.carezen.net',
+    db: {
+      host: 'dev-czendb-ro.use.dom.carezen.net',
+      user: 'readOnly',
+      password: process.env.MYSQL_DB_PASS_DEV,
+      database: 'czen',
+    },
   },
 };
 ```
@@ -216,10 +243,57 @@ const ENV_CONFIG = {
 Required environment variables:
 - `CZEN_API_KEY` — Care.com API key for REST endpoints
 - `STRIPE_KEY` — Stripe test key for payment method creation
+- `MYSQL_DB_PASS_DEV` — Read-only MySQL password for dev (only needed for `fully-enrolled` step, which queries `BACKGROUND_CHECK_EXECUTION` to get the screening ID for the Sterling callback)
+
+### Database Dependency
+
+Only the `fully-enrolled` step requires a database connection. It runs the `GET_SCREENING_ID` query against the `czen` database to retrieve `SCREENING_ID`, `PACKAGE_ID`, and `BRAVO_BACKGROUND_CHECK_ID` for the newly created provider, then passes those to the Sterling callback endpoint.
+
+This mirrors the existing `qa-playwright` implementation:
+- Connection config: same host/user/database as `Mysqldb.ts` in qa-playwright
+- Query: `SELECT BCE.SCREENING_ID, BCE.PACKAGE_ID, ... FROM BACKGROUND_CHECK BC, BACKGROUND_CHECK_EXECUTION BCE WHERE BC.ID = BCE.BACKGROUND_CHECK_ID AND BC.MEMBER_ID = ?`
+- Uses the `mysql` npm package with a connection pool
+
+Steps prior to `fully-enrolled` have no database dependency.
+
+### Sterling Callback
+
+The `fully-enrolled` step calls the Sterling safety-background-check service to simulate a completed background screening. The endpoint URL is environment-specific:
+- Dev: `https://safety-background-check.useast1.dev.omni.carezen.net/updateExecution`
+- Auth: Basic auth header (`Authorization: Basic QXBpVXNlckNhcmU6U3RlcmxpbmcyMDIwIQ==`)
+
+**Request body shape** (values from DB query substituted into `id`, `packageId`, `candidateId`):
+
+```json
+{
+  "type": "screening",
+  "payload": {
+    "id": "<SCREENING_ID from DB>",
+    "packageId": "<PACKAGE_ID from DB>",
+    "packageName": "Preliminary Member Check",
+    "accountName": "Care.com",
+    "accountId": "82704",
+    "billCode": "",
+    "jobPosition": "Preliminary Member Check",
+    "candidateId": "<BRAVO_BGC_ID from DB>",
+    "status": "Complete",
+    "result": "Clear",
+    "links": { "admin": { "web": "https://qasecure.sterlingdirect.com/..." } },
+    "reportItems": [
+      { "id": "17631573", "type": "Enhanced Nationwide Criminal Search", "status": "Complete", "result": "Clear" },
+      { "id": "17631574", "type": "DOJ Sex Offender Search", "status": "Complete", "result": "Clear" }
+    ],
+    "submittedAt": "<current ISO timestamp>",
+    "updatedAt": "<current ISO timestamp>"
+  }
+}
+```
+
+Reference implementation: `GQLProviderActions.sterlingCallBackUpdateExecution()` in `qa-playwright/src/utils/fixtures/graphql/GQLProviderActions.ts`.
 
 ## Error Handling
 
-- Each API call retries up to 3 times (matching existing behavior)
+- Each API call retries up to 3 times with no backoff delay (matching existing `qa-playwright` retry behavior)
 - On failure, the CLI prints which step failed, the error message, and the provider credentials created so far (so the partial user isn't lost)
 - Non-zero exit code on failure
 
@@ -230,7 +304,8 @@ Required environment variables:
 - `stripe` — Stripe payment method creation (already used in qa-playwright)
 - `nanoid` — short random string generation for email addresses
 
-No Playwright dependency.
+- `playwright` — used only for OIDC access token acquisition in `auth.ts` (Phase 1; see Authentication section)
+- `mysql` — used only for `fully-enrolled` step's screening ID query
 
 ## Future Verticals
 
@@ -259,7 +334,7 @@ Each vertical needs its own values for these payloads:
 
 ### Verticals to Add
 
-- **Senior Care** (`SENIOR_CARE` / `SENIRCARE`) — similar structure to childcare, different age/care attributes
+- **Senior Care** (`SENIOR_CARE` / `SENIRCARE`) — similar structure to childcare, different age/care attributes. Note: `SENIRCARE` is the actual enum value used in `MultipleVerticalsTypes` in the codebase (not a typo in this spec).
 - **Pet Care** (`PET_CARE` / `PETCAREXX`) — different attribute set (pet types, sizes)
 - **Housekeeping** (`HOUSEKEEPING` / `HOUSEKEEP`) — different attribute set (cleaning types, frequency)
 - **Tutoring** (`TUTORING` / `TUTORINGX`) — different attribute set (subjects, grade levels)
