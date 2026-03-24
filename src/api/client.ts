@@ -1,5 +1,3 @@
-import type { EnvConfig } from '../types.js';
-
 export class ApiClient {
   readonly baseUrl: string;
   readonly apiKey: string;
