@@ -11,6 +11,7 @@ export const WEB_STEPS = [
 
 export const MOBILE_STEPS = [
   'account-created',
+  'at-build-profile',
   'at-availability',
   'profile-complete',
   'upgraded',

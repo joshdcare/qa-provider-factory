@@ -10,6 +10,7 @@
     "build": "tsc",
     "start": "node --no-warnings dist/index.js",
     "dev": "tsx src/index.ts",
+    "create": "tsx src/index.ts --",
     "test": "vitest run",
     "test:watch": "vitest"
   },

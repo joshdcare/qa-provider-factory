@@ -41,7 +41,7 @@ You must be connected to the **VPN** for SPI endpoints and the dev database to b
 ## Usage
 
 ```bash
-npm run dev -- --step <step> [--platform web|mobile] [--tier basic|premium] [--vertical childcare] [--env dev]
+npm run create --step <step> [--platform web|mobile] [--tier basic|premium] [--vertical childcare] [--env dev]
 ```
 
 | Flag | Default | Description |
@@ -72,7 +72,8 @@ The tool runs every step up to and including the one you specify. Steps are cumu
 | Step | What it does | Where the user lands |
 |------|-------------|---------------------|
 | `account-created` | Creates account via REST SPI | "Where are you looking for jobs?" screen |
-| `at-availability` | Completes profile build steps | "Your availability" screen |
+| `at-build-profile` | Account created, no profile work done | "Build Your Profile" screen |
+| `at-availability` | Completes profile build steps (verticals + attributes) | "Your availability" screen |
 | `profile-complete` | Sets availability (Full-time, Mon-Fri) + bio + photo | Past profile |
 | `upgraded` | Vantiv payment + Basic/Premium subscription | Past upgrade |
 | `at-disclosure` | Reaches disclosure screen | Disclosure screen |
@@ -82,19 +83,22 @@ The tool runs every step up to and including the one you specify. Steps are cumu
 
 ```bash
 # Simplest: just an account
-npm run dev -- --step account-created
+npm run create --step account-created
+
+# Mobile user at the Build Your Profile screen
+npm run create --step at-build-profile --platform mobile
 
 # Mobile user stopped at the availability screen
-npm run dev -- --step at-availability --platform mobile
+npm run create --step at-availability --platform mobile
 
 # Fully enrolled Basic user on mobile
-npm run dev -- --step fully-enrolled --platform mobile --tier basic
+npm run create --step fully-enrolled --platform mobile --tier basic
 
 # Fully enrolled Premium user on web
-npm run dev -- --step fully-enrolled --platform web --tier premium
+npm run create --step fully-enrolled --platform web --tier premium
 
 # Web user at disclosure
-npm run dev -- --step at-disclosure --platform web
+npm run create --step at-disclosure --platform web
 ```
 
 ## Output

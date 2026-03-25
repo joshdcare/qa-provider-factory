@@ -13,7 +13,7 @@ export function parseArgs(argv: string[]): CliOptions {
   program
     .requiredOption(
       '--step <step>',
-      `Enrollment checkpoint`,
+      `Enrollment checkpoint (see steps below)`,
       (value: string) => {
         const allSteps = [...ALL_STEPS];
         if (!allSteps.includes(value as any)) {
@@ -24,10 +24,24 @@ export function parseArgs(argv: string[]): CliOptions {
         return value as Step;
       }
     )
-    .option('--tier <tier>', 'Subscription tier', 'premium')
+    .option('--tier <tier>', 'Subscription tier (basic, premium)', 'premium')
     .option('--vertical <vertical>', 'Service vertical', 'childcare')
     .option('--platform <platform>', 'Target platform (web, mobile)', 'web')
-    .option('--env <env>', 'Target environment', 'dev');
+    .option('--env <env>', 'Target environment', 'dev')
+    .addHelpText('after', `
+Steps by platform:
+
+  Web (--platform web):
+${[...WEB_STEPS].map(s => `    ${s}`).join('\n')}
+
+  Mobile (--platform mobile):
+${[...MOBILE_STEPS].map(s => `    ${s}`).join('\n')}
+
+Examples:
+  $ ./factory --step at-availability --platform mobile
+  $ ./factory --step fully-enrolled --platform mobile --tier basic
+  $ ./factory --step at-disclosure --platform web
+`);
 
   program.parse(argv, { from: 'user' });
   const opts = program.opts() as CliOptions;

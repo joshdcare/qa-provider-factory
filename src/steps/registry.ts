@@ -36,6 +36,7 @@ export const WEB_STEP_PIPELINE: StepDefinition[] = [
 
 export const MOBILE_STEP_PIPELINE: StepDefinition[] = [
   { name: 'account-created', runner: createAccountMobile },
+  { name: 'at-build-profile', runner: noop },
   { name: 'at-availability', runner: mobilePreAvailability },
   { name: 'profile-complete', runner: mobileCompleteProfile },
   { name: 'upgraded', runner: mobileUpgrade },
