@@ -38,6 +38,37 @@ export class ApiClient {
     return json.data as T;
   }
 
+  async restPostSpi(
+    path: string,
+    authToken: string,
+    body: Record<string, string> | object,
+    contentType: 'json' | 'form' = 'form'
+  ): Promise<any> {
+    const sep = path.includes('?') ? '&' : '?';
+    const url = `${this.baseUrl}/platform/spi/${path}${sep}X-Care.com-AuthToken=${encodeURIComponent(authToken)}`;
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'X-Care.com-APIKey': this.apiKey,
+      'X-Care.com-OS': 'Android',
+      'X-Care.com-AppVersion': '19.2',
+      'X-Care.com-AppBuildNr': '8000',
+      'X-Care.com-AuthToken': authToken,
+    };
+
+    let bodyStr: string;
+    if (contentType === 'form') {
+      headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      bodyStr = new URLSearchParams(body as Record<string, string>).toString();
+    } else {
+      headers['Content-Type'] = 'application/json';
+      bodyStr = JSON.stringify(body);
+    }
+
+    const res = await fetch(url, { method: 'POST', headers, body: bodyStr });
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return text; }
+  }
+
   async restPost(
     path: string,
     authToken: string,
@@ -65,7 +96,12 @@ export class ApiClient {
       body: bodyStr,
     });
 
-    return res.json();
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
   }
 
   async restGet(
@@ -85,7 +121,53 @@ export class ApiClient {
       headers,
     });
 
-    return res.json();
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
+  }
+
+  async restPostMultipartSpi(
+    path: string,
+    authToken: string,
+    formData: FormData
+  ): Promise<any> {
+    const sep = path.includes('?') ? '&' : '?';
+    const url = `${this.baseUrl}/platform/spi/${path}${sep}X-Care.com-AuthToken=${encodeURIComponent(authToken)}`;
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'X-Care.com-APIKey': this.apiKey,
+      'X-Care.com-OS': 'Android',
+      'X-Care.com-AppVersion': '19.2',
+      'X-Care.com-AppBuildNr': '8000',
+      'X-Care.com-AuthToken': authToken,
+    };
+
+    const res = await fetch(url, { method: 'POST', headers, body: formData });
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return text; }
+  }
+
+  async restGetSpi(
+    path: string,
+    authToken: string
+  ): Promise<any> {
+    const sep = path.includes('?') ? '&' : '?';
+    const url = `${this.baseUrl}/platform/spi/${path}${sep}X-Care.com-AuthToken=${encodeURIComponent(authToken)}`;
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'X-Care.com-APIKey': this.apiKey,
+      'X-Care.com-OS': 'Android',
+      'X-Care.com-AppVersion': '19.2',
+      'X-Care.com-AppBuildNr': '8000',
+      'X-Care.com-AuthToken': authToken,
+    };
+
+    const res = await fetch(url, { method: 'GET', headers });
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return text; }
   }
 
   async retryRequest<T>(

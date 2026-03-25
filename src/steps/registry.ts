@@ -1,10 +1,17 @@
 import type { ApiClient } from '../api/client.js';
-import type { ProviderContext, Step, EnvConfig } from '../types.js';
-import { createAccount } from './account.js';
-import { setupProfile, completeProfile } from './profile.js';
+import type { ProviderContext, Step, Platform, EnvConfig } from '../types.js';
+import { WEB_STEPS, MOBILE_STEPS } from '../types.js';
+import { createAccount, createAccountMobile } from './account.js';
+import { setupProfile, completeProfile, webCompleteProfile } from './profile.js';
 import { setupPayment, upgradeSubscription } from './upgrade.js';
 import { acceptDisclosure } from './disclosure.js';
 import { completeEnrollment } from './enrollment.js';
+import {
+  mobilePreAvailability,
+  mobileUpgrade,
+  mobileCompleteProfile,
+  mobileFullyEnrolled,
+} from './mobile.js';
 
 export interface StepDefinition {
   name: Step;
@@ -16,22 +23,42 @@ export interface StepDefinition {
   ) => Promise<void>;
 }
 
-export const STEP_PIPELINE: StepDefinition[] = [
+async function noop(): Promise<void> {}
+
+export const WEB_STEP_PIPELINE: StepDefinition[] = [
   { name: 'account-created', runner: createAccount },
-  { name: 'at-availability', runner: setupProfile },
-  { name: 'profile-complete', runner: completeProfile },
+  { name: 'profile-complete', runner: webCompleteProfile },
   { name: 'pre-upgrade', runner: setupPayment },
   { name: 'upgraded', runner: upgradeSubscription },
   { name: 'at-disclosure', runner: acceptDisclosure },
   { name: 'fully-enrolled', runner: completeEnrollment },
 ];
 
-export function getStepsUpTo(targetStep: Step): StepDefinition[] {
-  const index = STEP_PIPELINE.findIndex((s) => s.name === targetStep);
+export const MOBILE_STEP_PIPELINE: StepDefinition[] = [
+  { name: 'account-created', runner: createAccountMobile },
+  { name: 'at-availability', runner: mobilePreAvailability },
+  { name: 'profile-complete', runner: mobileCompleteProfile },
+  { name: 'upgraded', runner: mobileUpgrade },
+  { name: 'at-disclosure', runner: noop },
+  { name: 'fully-enrolled', runner: mobileFullyEnrolled },
+];
+
+function getPipeline(platform: Platform): StepDefinition[] {
+  return platform === 'mobile' ? MOBILE_STEP_PIPELINE : WEB_STEP_PIPELINE;
+}
+
+function getValidSteps(platform: Platform): readonly string[] {
+  return platform === 'mobile' ? MOBILE_STEPS : WEB_STEPS;
+}
+
+export function getStepsUpTo(targetStep: Step, platform: Platform = 'web'): StepDefinition[] {
+  const pipeline = getPipeline(platform);
+  const validSteps = getValidSteps(platform);
+  const index = pipeline.findIndex((s) => s.name === targetStep);
   if (index === -1) {
     throw new Error(
-      `Unknown step: "${targetStep}". Valid steps: ${STEP_PIPELINE.map((s) => s.name).join(', ')}`
+      `Unknown step "${targetStep}" for ${platform} platform. Valid steps: ${validSteps.join(', ')}`
     );
   }
-  return STEP_PIPELINE.slice(0, index + 1);
+  return pipeline.slice(0, index + 1);
 }

@@ -6,18 +6,22 @@ export async function acceptDisclosure(
   ctx: ProviderContext,
   _payloads: any
 ): Promise<void> {
-  const now = new Date().toISOString();
-  const currentTime = `${now.split('T')[0]} ${now.split('T')[1].split('.')[0]}`;
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const currentTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
 
-  await client.restPost(
-    '/platform/spi/enroll/backgroundCheckAccepted',
+  const result = await client.restPostSpi(
+    'enroll/backgroundCheckAccepted',
     ctx.authToken,
     {
       federalDisclosureAcceptedDate: currentTime,
+      stateDisclosureAcceptedDate: currentTime,
       requestCopyOfBGC: 'false',
-    },
-    'form'
+    }
   );
 
+  if (result?.statusCode !== 200) {
+    console.warn('    Disclosure response:', JSON.stringify(result).slice(0, 300));
+  }
   console.log('  ✓ Background check disclosure accepted');
 }

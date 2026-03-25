@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import 'dotenv/config';
 import { Command, CommanderError } from 'commander';
-import { STEPS, ENV_CONFIGS } from './types.js';
-import type { Step, Tier, Vertical, CliOptions, ProviderContext } from './types.js';
+import { ALL_STEPS, WEB_STEPS, MOBILE_STEPS, ENV_CONFIGS } from './types.js';
+import type { Step, Tier, Vertical, Platform, CliOptions, ProviderContext } from './types.js';
 import { ApiClient } from './api/client.js';
 import { getAccessToken } from './api/auth.js';
 import { getStepsUpTo } from './steps/registry.js';
@@ -13,11 +13,12 @@ export function parseArgs(argv: string[]): CliOptions {
   program
     .requiredOption(
       '--step <step>',
-      `Enrollment checkpoint (${STEPS.join(', ')})`,
+      `Enrollment checkpoint`,
       (value: string) => {
-        if (!STEPS.includes(value as Step)) {
+        const allSteps = [...ALL_STEPS];
+        if (!allSteps.includes(value as any)) {
           throw new Error(
-            `Invalid step "${value}". Valid: ${STEPS.join(', ')}`
+            `Invalid step "${value}". Valid: ${allSteps.join(', ')}`
           );
         }
         return value as Step;
@@ -25,10 +26,25 @@ export function parseArgs(argv: string[]): CliOptions {
     )
     .option('--tier <tier>', 'Subscription tier', 'premium')
     .option('--vertical <vertical>', 'Service vertical', 'childcare')
+    .option('--platform <platform>', 'Target platform (web, mobile)', 'web')
     .option('--env <env>', 'Target environment', 'dev');
 
   program.parse(argv, { from: 'user' });
-  return program.opts() as CliOptions;
+  const opts = program.opts() as CliOptions;
+
+  const validPlatforms = ['web', 'mobile'];
+  if (!validPlatforms.includes(opts.platform)) {
+    throw new Error(`Invalid platform "${opts.platform}". Valid: ${validPlatforms.join(', ')}`);
+  }
+
+  const validSteps = opts.platform === 'mobile' ? MOBILE_STEPS : WEB_STEPS;
+  if (!validSteps.includes(opts.step as any)) {
+    throw new Error(
+      `Step "${opts.step}" is not valid for ${opts.platform} platform. Valid steps: ${[...validSteps].join(', ')}`
+    );
+  }
+
+  return opts;
 }
 
 async function loadPayloads(vertical: Vertical) {
@@ -62,9 +78,9 @@ async function run(opts: CliOptions): Promise<void> {
     vertical: payloads.providerCreateDefaults.serviceType,
   };
 
-  const steps = getStepsUpTo(opts.step);
+  const steps = getStepsUpTo(opts.step, opts.platform);
 
-  console.log(`\nCreating provider at step: ${opts.step}\n`);
+  console.log(`\nCreating provider at step: ${opts.step} (${opts.platform})\n`);
 
   for (const step of steps) {
     if (step.name !== 'account-created' && !ctx.accessToken) {
@@ -88,12 +104,20 @@ async function run(opts: CliOptions): Promise<void> {
     }
   }
 
-  console.log(`\n✓ Provider created at step: ${opts.step}\n`);
+  console.log(`\n✓ Provider created at step: ${opts.step} (${opts.platform})\n`);
   console.log(`  Email:      ${ctx.email}`);
   console.log(`  Password:   ${ctx.password}`);
   console.log(`  MemberId:   ${ctx.memberId}`);
   console.log(`  UUID:       ${ctx.uuid ?? '(set MYSQL_DB_PASS_DEV to retrieve)'}`);
   console.log(`  Vertical:   ${ctx.vertical}`);
+
+  const stepsWithAvailability: Step[] = ['profile-complete', 'pre-upgrade', 'upgraded', 'at-disclosure', 'fully-enrolled'];
+  if (stepsWithAvailability.includes(opts.step)) {
+    console.log('');
+    console.log('  ℹ Availability: Full-time preference is set. Detailed day/time schedule');
+    console.log('    is not visible in "Your Services & Availability" on first login.');
+    console.log('    Tap "Edit" > save once in the app to populate the calendar view.');
+  }
   console.log('');
 }
 

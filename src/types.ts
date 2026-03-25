@@ -1,6 +1,7 @@
-export const STEPS = [
+export type Platform = 'web' | 'mobile';
+
+export const WEB_STEPS = [
   'account-created',
-  'at-availability',
   'profile-complete',
   'pre-upgrade',
   'upgraded',
@@ -8,7 +9,20 @@ export const STEPS = [
   'fully-enrolled',
 ] as const;
 
-export type Step = (typeof STEPS)[number];
+export const MOBILE_STEPS = [
+  'account-created',
+  'at-availability',
+  'profile-complete',
+  'upgraded',
+  'at-disclosure',
+  'fully-enrolled',
+] as const;
+
+export const ALL_STEPS = [
+  ...new Set([...WEB_STEPS, ...MOBILE_STEPS]),
+] as const;
+
+export type Step = (typeof WEB_STEPS)[number] | (typeof MOBILE_STEPS)[number];
 
 export type Tier = 'basic' | 'premium';
 
@@ -19,6 +33,7 @@ export interface CliOptions {
   tier: Tier;
   vertical: Vertical;
   env: string;
+  platform: Platform;
 }
 
 export interface EnvConfig {
@@ -43,6 +58,7 @@ export interface ProviderContext {
   accessToken?: string;
   tier: Tier;
   vertical: string;
+  _eligibilityResponse?: any;
 }
 
 export interface ProviderResult {

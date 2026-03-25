@@ -159,6 +159,41 @@ export const UPGRADE_PROVIDER_SUBSCRIPTION = `
   }
 `;
 
+export const GET_MEMBER_IDS = `
+  query getMemberIds($ids: [ID!]!, $idType: IdType!) {
+    getMemberIds(ids: $ids, idType: $idType) {
+      memberId
+      uuid
+    }
+  }
+`;
+
+export const UPDATE_PROVIDER_AVAILABILITY_PREFERENCE = `
+  mutation UpdateProviderAvailabilityPreference($input: UpdateProviderAvailabilityPreferenceInput!) {
+    UpdateProviderAvailabilityPreference(input: $input) {
+      ... on UpdateProviderAvailabilityPreferenceSuccess {
+        success
+      }
+      ... on UpdateProviderAvailabilityPreferenceError {
+        error
+      }
+    }
+  }
+`;
+
+export const ACKNOWLEDGE_AVAILABILITY = `
+  mutation AcknowledgeAvailability($input: AcknowledgeAvailabilityInput!) {
+    AcknowledgeAvailability(input: $input) {
+      ... on AcknowledgeAvailabilitySuccess {
+        success
+      }
+      ... on AcknowledgeAvailabilityError {
+        error
+      }
+    }
+  }
+`;
+
 export const NOTIFICATION_SETTING_CREATE = `
   mutation NotificationSettingCreate($input: NotificationSettingCreateInput!) {
     notificationSettingCreate(input: $input) {

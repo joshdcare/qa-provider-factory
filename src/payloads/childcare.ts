@@ -1,13 +1,13 @@
 export const providerCreateDefaults = {
   serviceType: 'CHILD_CARE',
-  zipcode: '02451',
-  howDidYouHearAboutUs: 'TV',
+  zipcode: '72204',
+  howDidYouHearAboutUs: 'OTHER',
   referrerCookie: '',
 };
 
 export const providerNameUpdateInput = {
-  firstName: 'Harvey',
-  lastName: 'Zellarzi',
+  firstName: 'Martina',
+  lastName: 'Goodram',
 };
 
 export const saveMultipleVerticalsInput = {
@@ -43,8 +43,8 @@ export const universalProviderAttributesUpdateInput = {
 };
 
 export const providerUniversalAvailabilityInput = {
-  daysOfWeek: ['THURSDAY', 'TUESDAY', 'MONDAY', 'SUNDAY', 'WEDNESDAY'],
-  timesOfDay: ['AFTERNOONS', 'EVENINGS', 'MORNINGS'],
+  daysOfWeek: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+  timesOfDay: ['MORNINGS', 'AFTERNOONS'],
 };
 
 export const providerBiographyInput = {
@@ -98,7 +98,7 @@ export const caregiverAttributesSecondUpdateInput = {
 
 export const notificationSettingCreateInput = {
   domain: 'PROVIDER_SCREENING',
-  phoneNumber: '+17817956755',
+  phoneNumber: '+12001004000',
   type: 'SMS',
 };
 
@@ -116,35 +116,35 @@ export const pricingConfig = {
 };
 
 export const p2pStripeAccountInput = {
-  firstName: 'Harvey',
-  lastName: 'Zellarzi',
-  addressLine1: '201 Jones road',
-  dateOfBirth: '1973-08-26',
-  lastFourSSN: '1111',
-  city: 'Waltham',
-  state: 'MA',
-  zip: '02451',
+  firstName: 'Martina',
+  lastName: 'Goodram',
+  addressLine1: '28965 Homewood Plaza',
+  dateOfBirth: '1995-07-26',
+  lastFourSSN: '9347',
+  city: 'Little Rock',
+  state: 'AR',
+  zip: '72204',
 };
 
 export const legalInfoInput = {
-  gender: 'M',
-  dateOfBirth: '10/10/1990',
+  gender: 'F',
+  dateOfBirth: '07/26/1995',
   screenName: 'Name',
-  firstName: 'Harvey',
-  middleName: 'Ks',
-  lastName: 'Zellarzi',
+  firstName: 'Martina',
+  middleName: '',
+  lastName: 'Goodram',
 };
 
 export const legalAddressInput = {
-  addressLine1: '201 Jones road',
-  addressLine2: '100th street',
+  addressLine1: '28965 Homewood Plaza',
+  addressLine2: '',
   screenName: 'Address',
-  zip: '02451',
-  city: 'Waltham',
-  state: 'MA',
+  zip: '72204',
+  city: 'Little Rock',
+  state: 'AR',
 };
 
 export const ssnInput = {
-  ssn: '773011779',
-  ssnInfoAccepted: '1',
+  ssn: '490959347',
+  ssnInfoAccepted: true,
 };
