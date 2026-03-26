@@ -7,11 +7,22 @@ A CLI tool for the PEXP team that navigates provider enrollment to specific chec
 
 ## Setup
 
-### 1. Install dependencies
-
 ```bash
 git clone <repo-url>
 cd qa-provider-factory
+./setup.sh
+```
+
+The setup script handles everything: checks your Node.js version, installs npm dependencies, installs Playwright Chromium, walks you through configuring `.env`, and builds the project.
+
+To set up manually instead, see the steps below.
+
+<details>
+<summary>Manual setup</summary>
+
+### 1. Install dependencies
+
+```bash
 npm install
 ```
 
@@ -23,7 +34,7 @@ npx playwright install chromium
 
 ### 3. Configure environment variables
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root (or copy from `.env.example`):
 
 ```
 CZEN_API_KEY=<your Care.com API key>
@@ -31,13 +42,23 @@ STRIPE_KEY=<Stripe test key>
 MYSQL_DB_PASS_DEV=<MySQL read-only password>
 ```
 
+### 4. Build
+
+```bash
+npm run build
+```
+
+</details>
+
+### Environment variables
+
 | Variable | Required for | How to get it |
 |----------|-------------|---------------|
 | `CZEN_API_KEY` | Mobile steps, web steps past account creation | Ask a team lead or check the QA vault |
 | `STRIPE_KEY` | Mobile `upgraded` and later | Stripe dashboard > Developers > API keys (test mode) |
 | `MYSQL_DB_PASS_DEV` | Mobile `fully-enrolled`; optional for UUID lookup on other steps | Ask a team lead or check the QA vault |
 
-### 4. Network access
+### Network access
 
 You must be connected to the **VPN** for SPI endpoints and the dev database to be reachable.
 
@@ -262,6 +283,8 @@ Mobile enrollment targets **Android only**. The iOS enrollment flow has inconsis
 ```
 qa-provider-factory/
 ├── .env                          # Environment variables (not committed)
+├── .env.example                  # Template for .env
+├── setup.sh                      # First-time setup script
 ├── package.json
 ├── tsconfig.json
 ├── src/
