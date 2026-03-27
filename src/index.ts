@@ -52,9 +52,9 @@ ${[...WEB_STEPS].map(s => `    ${s}`).join('\n')}
 ${[...MOBILE_STEPS].map(s => `    ${s}`).join('\n')}
 
 Examples:
-  $ ./factory --step at-location --platform web
-  $ ./factory --step at-availability --platform mobile
-  $ ./factory --step fully-enrolled --platform mobile --tier basic
+  $ jumper --step at-location --platform web
+  $ jumper --step at-availability --platform mobile
+  $ jumper --step fully-enrolled --platform mobile --tier basic
 `);
   return cmd;
 }
