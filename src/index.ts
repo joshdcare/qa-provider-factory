@@ -65,7 +65,7 @@ Examples:
   }
 
   const validSteps = opts.platform === 'mobile' ? MOBILE_STEPS : WEB_STEPS;
-  if (!validSteps.includes(opts.step as any)) {
+  if (!(validSteps as readonly Step[]).includes(opts.step)) {
     throw new Error(
       `Step "${opts.step}" is not valid for ${opts.platform} platform. Valid steps: ${[...validSteps].join(', ')}`
     );

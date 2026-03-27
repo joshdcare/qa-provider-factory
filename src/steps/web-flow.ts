@@ -64,7 +64,9 @@ export async function runWebEnrollmentFlow(
       await browser.close();
     } else {
       console.log('\n  Close the browser when you\'re done.\n');
-      await new Promise<void>(resolve => browser.on('disconnected', resolve));
+      await new Promise<void>(resolve => {
+        browser.once('disconnected', () => resolve());
+      });
     }
     return { email, password, accountCreated, memberId, uuid, vertical };
   }
@@ -229,7 +231,9 @@ export async function runWebEnrollmentFlow(
       await browser.close();
     } else {
       console.log('\n  Browser left open for debugging. Close it when done.\n');
-      await new Promise<void>(resolve => browser.on('disconnected', resolve));
+      await new Promise<void>(resolve => {
+        browser.once('disconnected', () => resolve());
+      });
     }
   }
 
