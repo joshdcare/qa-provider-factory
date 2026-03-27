@@ -2,6 +2,8 @@
 
 A CLI tool for the PEXP team that navigates provider enrollment to specific checkpoints. Instead of manually clicking through 15+ screens to reach a particular point in the flow, run one command and get there in seconds.
 
+Supports **five verticals**: Child Care, Senior Care, Pet Care, Housekeeping, and Tutoring.
+
 - **Web**: Opens a real Chromium browser and drives through enrollment pages, stopping at the target page with the browser open for you to take over.
 - **Mobile**: Uses API calls to create an account at a specific enrollment state.
 
@@ -73,7 +75,7 @@ npm run create --step <step> [--platform web|mobile] [--tier basic|premium] [--v
 | `--step` | *(required)* | Enrollment checkpoint to stop at |
 | `--platform` | `web` | Target platform — `web` or `mobile` (Android) |
 | `--tier` | `premium` | Subscription tier — `basic` or `premium` |
-| `--vertical` | `childcare` | Service vertical |
+| `--vertical` | `childcare` | Service vertical — `childcare`, `seniorcare`, `petcare`, `housekeeping`, `tutoring` |
 | `--env` | `dev` | Target environment |
 
 ## Enrollment Steps
@@ -106,7 +108,7 @@ Steps before `at-account-creation` navigate the browser without creating an acco
 
 | Step | Fields entered |
 |------|---------------|
-| `at-vertical-selection` | Selects the "Child Care" vertical |
+| `at-vertical-selection` | Selects the vertical specified by `--vertical` |
 | `at-location` | ZIP code `72204` |
 | `at-account-creation` | First name, last name, email, password, gender, age checkbox |
 | `at-basic-payment` / `at-premium-payment` | Name on card, credit card number, expiration, CVV, billing ZIP (via Stripe Elements) |
@@ -128,29 +130,29 @@ Mobile uses API calls to build account state at each checkpoint. Steps are cumul
 ## Examples
 
 ```bash
-# Web — stop at the location page
+# Web — stop at the location page (Child Care, the default)
 npm run create --step at-location --platform web
 
-# Web — stop at the account creation form
-npm run create --step at-account-creation --platform web
+# Web — Senior Care provider at account creation
+npm run create --step at-account-creation --platform web --vertical seniorcare
 
 # Web — stop at basic checkout
 npm run create --step at-basic-payment --platform web
 
-# Web — stop at premium checkout
-npm run create --step at-premium-payment --platform web
+# Web — Pet Care provider through premium checkout
+npm run create --step at-premium-payment --platform web --vertical petcare
 
 # Web — complete enrollment through app download (basic tier)
 npm run create --step at-app-download --platform web --tier basic
 
-# Mobile — stopped at the availability screen
-npm run create --step at-availability --platform mobile
+# Mobile — Housekeeping provider stopped at the availability screen
+npm run create --step at-availability --platform mobile --vertical housekeeping
 
 # Mobile — fully enrolled Basic user
 npm run create --step fully-enrolled --platform mobile --tier basic
 
-# Mobile — fully enrolled Premium user
-npm run create --step fully-enrolled --platform mobile --tier premium
+# Mobile — fully enrolled Tutoring Premium user
+npm run create --step fully-enrolled --platform mobile --tier premium --vertical tutoring
 ```
 
 ## Output
@@ -201,7 +203,7 @@ For steps at or past `at-account-creation`, the flow fills in all forms automati
   Password:   letmein1
   MemberId:   1774484793
   UUID:       a6fd308d-258b-4c24-8251-0c0e0b5778e0
-  Vertical:   CHILD_CARE
+  Vertical:   CHILD_CARE (or SENIOR_CARE, PET_CARE, etc.)
 
   Close the browser when you're done.
 ```
@@ -290,12 +292,17 @@ qa-provider-factory/
 ├── src/
 │   ├── index.ts                  # CLI entry point
 │   ├── types.ts                  # Types, step lists, env config
+│   ├── verticals.ts              # Vertical registry (service IDs, web selectors)
 │   ├── api/
 │   │   ├── auth.ts               # Auth0 PKCE token flow (Playwright headless)
 │   │   ├── client.ts             # HTTP client — GraphQL, REST JSON, SPI, multipart
 │   │   └── graphql.ts            # All GraphQL queries and mutations
 │   ├── payloads/
-│   │   └── childcare.ts          # Default payloads for the Child Care vertical
+│   │   ├── childcare.ts          # Child Care payloads
+│   │   ├── seniorcare.ts         # Senior Care payloads
+│   │   ├── petcare.ts            # Pet Care payloads
+│   │   ├── housekeeping.ts       # Housekeeping payloads
+│   │   └── tutoring.ts           # Tutoring payloads
 │   └── steps/
 │       ├── web-flow.ts           # Playwright browser enrollment (web)
 │       ├── registry.ts           # Step pipeline (mobile)
@@ -309,7 +316,8 @@ qa-provider-factory/
 ├── tests/
 │   ├── index.test.ts
 │   ├── client.test.ts
-│   └── registry.test.ts
+│   ├── registry.test.ts
+│   └── verticals.test.ts
 └── docs/
     ├── specs/                    # Design spec
     └── plans/                    # Implementation plan
@@ -327,6 +335,14 @@ qa-provider-factory/
 1. Add the step name to `MOBILE_STEPS` in `src/types.ts`
 2. Write a runner function in the appropriate file under `src/steps/`
 3. Insert it in the correct position in the pipeline array in `src/steps/registry.ts`
+
+### Adding a new vertical
+
+1. Add the vertical name to the `Vertical` type in `src/types.ts`
+2. Add an entry in `VERTICAL_REGISTRY` in `src/verticals.ts` with the service ID and web tile pattern
+3. Create a payload file at `src/payloads/<vertical>.ts` (copy an existing one and update the service-specific fields)
+4. Add the dynamic import case in `loadPayloads()` in `src/index.ts`
+5. Add the vertical to the CLI validation list in `parseArgs()`
 
 ### Running tests
 
