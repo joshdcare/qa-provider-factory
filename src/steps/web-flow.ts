@@ -107,7 +107,7 @@ export async function runWebEnrollmentFlow(
     await page.getByLabel(/zip/i).first().fill('72204');
     await clickEnabledButton(page, /next/i);
     await page.waitForURL(
-      url => /\/(preferences|hourly-rate)/.test(url.pathname),
+      url => url.pathname.includes('/enrollment/provider/mv/') && !url.pathname.includes('/location'),
       { timeout: 15_000 },
     );
     await waitForPageReady(page);
@@ -392,10 +392,30 @@ async function selectVertical(page: Page, verticalConfig: VerticalConfig): Promi
 }
 
 async function fillPreferences(page: Page): Promise<void> {
-  // The preferences page asks about experience, schedule, etc.
-  // Some options may need to be selected before "Next" is enabled.
-  // If no required selections, this is a no-op and Next will work.
-  // Adjust if the page requires specific checkbox/radio selections.
+  // Preference pages vary by vertical — some require checkbox/radio selections
+  // before "Next" is enabled. Select any visible unchecked checkboxes and the
+  // first radio option in each group to satisfy required fields generically.
+  await waitForPageReady(page);
+
+  const checkboxes = page.getByRole('checkbox');
+  const count = await checkboxes.count().catch(() => 0);
+  for (let i = 0; i < Math.min(count, 5); i++) {
+    const cb = checkboxes.nth(i);
+    if (await cb.isVisible().catch(() => false) && !(await cb.isChecked().catch(() => true))) {
+      await cb.click();
+      await page.waitForTimeout(200);
+    }
+  }
+
+  const radioGroups = page.getByRole('radiogroup');
+  const groupCount = await radioGroups.count().catch(() => 0);
+  for (let i = 0; i < groupCount; i++) {
+    const firstRadio = radioGroups.nth(i).getByRole('radio').first();
+    if (await firstRadio.isVisible().catch(() => false) && !(await firstRadio.isChecked().catch(() => true))) {
+      await firstRadio.click();
+      await page.waitForTimeout(200);
+    }
+  }
 }
 
 async function fillAccountForm(
