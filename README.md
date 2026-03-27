@@ -4,7 +4,7 @@ A CLI tool for the PEXP team that navigates provider enrollment to specific chec
 
 Supports **five verticals**: Child Care, Senior Care, Pet Care, Housekeeping, and Tutoring.
 
-- **Web**: Opens a real Chromium browser and drives through enrollment pages, stopping at the target page with the browser open for you to take over.
+- **Web**: Opens a real Chromium browser and drives through enrollment pages, stopping at the target page. The browser auto-closes after logging credentials; pass `--no-auto-close` to keep it open for manual testing.
 - **Mobile**: Uses API calls to create an account at a specific enrollment state.
 
 ## Setup
@@ -67,7 +67,7 @@ You must be connected to the **VPN** for SPI endpoints and the dev database to b
 ## Usage
 
 ```bash
-npm run create --step <step> [--platform web|mobile] [--tier basic|premium] [--vertical childcare] [--env dev]
+npm run create --step <step> [--platform web|mobile] [--tier basic|premium] [--vertical childcare] [--env dev] [--no-auto-close]
 ```
 
 | Flag | Default | Description |
@@ -77,6 +77,7 @@ npm run create --step <step> [--platform web|mobile] [--tier basic|premium] [--v
 | `--tier` | `premium` | Subscription tier — `basic` or `premium` |
 | `--vertical` | `childcare` | Service vertical — `childcare`, `seniorcare`, `petcare`, `housekeeping`, `tutoring` |
 | `--env` | `dev` | Target environment |
+| `--no-auto-close` | *(off)* | Keep the browser open after logging credentials (web only) |
 
 ## Enrollment Steps
 
@@ -84,7 +85,7 @@ The tool runs through enrollment up to and including the step you specify.
 
 ### Web (`--platform web`)
 
-Web drives a real Chromium browser through the enrollment flow. The browser stops at the target page and stays open for manual testing.
+Web drives a real Chromium browser through the enrollment flow. The browser auto-closes after logging credentials. Use `--no-auto-close` to keep it open for manual testing.
 
 | Step | Page URL |
 |------|----------|
@@ -176,7 +177,7 @@ For steps before `at-account-creation`, the browser stops at the target page and
     Email:      prov-abc123@care.com
     Password:   letmein1
 
-  Close the browser when you're done.
+  Auto-closing browser.
 ```
 
 ### Web (after account creation)
@@ -205,10 +206,10 @@ For steps at or past `at-account-creation`, the flow fills in all forms automati
   UUID:       a6fd308d-258b-4c24-8251-0c0e0b5778e0
   Vertical:   CHILD_CARE (or SENIOR_CARE, PET_CARE, etc.)
 
-  Close the browser when you're done.
+  Auto-closing browser.
 ```
 
-If a step fails (e.g., a selector doesn't match), the browser stays open for debugging. If the account was already created, the credentials are still printed so you don't lose the user.
+If a step fails, credentials are still printed so you don't lose the user. With `--no-auto-close`, the browser stays open for debugging.
 
 ### Mobile
 

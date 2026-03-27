@@ -12,7 +12,7 @@ description: >-
 
 CLI tool that creates provider accounts at specific enrollment checkpoints, so QA can test any point in the flow without manually clicking through enrollment.
 
-- **Web**: Drives a real Chromium browser through the enrollment pages, stopping at the target page with the browser open for manual testing.
+- **Web**: Drives a real Chromium browser through the enrollment pages, stopping at the target page. The browser auto-closes after logging credentials; pass `--no-auto-close` to keep it open for manual testing.
 - **Mobile**: Uses API calls to set up account state at specific checkpoints.
 
 ## Prerequisites
@@ -35,7 +35,7 @@ Ask a team lead for these values if you don't have them.
 cd qa-provider-factory
 npm install
 npx playwright install chromium
-npm run dev -- --step <step> --platform <platform> [--vertical <vertical>] [--tier basic|premium]
+npm run dev -- --step <step> --platform <platform> [--vertical <vertical>] [--tier basic|premium] [--no-auto-close]
 ```
 
 ## Supported Verticals
@@ -52,7 +52,7 @@ npm run dev -- --step <step> --platform <platform> [--vertical <vertical>] [--ti
 
 ### Web steps (`--platform web`, default)
 
-Web uses Playwright to navigate a real browser through each enrollment page. The browser stays open at the target step for manual testing.
+Web uses Playwright to navigate a real browser through each enrollment page. The browser auto-closes after logging credentials. Pass `--no-auto-close` to keep the browser open at the target step for manual testing.
 
 | Step | URL / Page |
 |------|-----------|
@@ -136,7 +136,7 @@ npm run dev -- --step at-build-profile --platform mobile --vertical petcare
     Email:      prov-abc123@care.com
     Password:   letmein1
 
-  Close the browser when you're done.
+  Auto-closing browser.
 ```
 
 ### Web output (after account creation)
@@ -157,7 +157,7 @@ Steps past `at-account-creation` print MemberId, UUID, and Vertical — the same
   UUID:       a6fd308d-258b-4c24-8251-0c0e0b5778e0
   Vertical:   CHILD_CARE
 
-  Close the browser when you're done.
+  Auto-closing browser.
 ```
 
 ### Mobile output

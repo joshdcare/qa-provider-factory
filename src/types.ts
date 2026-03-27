@@ -42,6 +42,7 @@ export interface CliOptions {
   vertical: Vertical;
   env: string;
   platform: Platform;
+  autoClose: boolean;
 }
 
 export interface EnvConfig {

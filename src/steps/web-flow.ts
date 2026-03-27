@@ -22,6 +22,7 @@ export async function runWebEnrollmentFlow(
   envConfig: EnvConfig,
   verticalConfig: VerticalConfig,
   serviceType: string,
+  autoClose = false,
 ): Promise<WebFlowResult> {
   const email = `prov-${nanoid(6).toLowerCase()}@care.com`;
   const password = 'letmein1';
@@ -58,8 +59,13 @@ export async function runWebEnrollmentFlow(
       console.log(`    Email:      ${email}`);
       console.log(`    Password:   ${password}`);
     }
-    console.log('\n  Close the browser when you\'re done.\n');
-    await new Promise<void>(resolve => browser.on('disconnected', resolve));
+    if (autoClose) {
+      console.log('\n  Auto-closing browser.\n');
+      await browser.close();
+    } else {
+      console.log('\n  Close the browser when you\'re done.\n');
+      await new Promise<void>(resolve => browser.on('disconnected', resolve));
+    }
     return { email, password, accountCreated, memberId, uuid, vertical };
   }
 
@@ -218,8 +224,13 @@ export async function runWebEnrollmentFlow(
       console.log(`  UUID:       ${uuid ?? '(not found)'}`);
       console.log(`  Vertical:   ${vertical}`);
     }
-    console.log('\n  Browser left open for debugging. Close it when done.\n');
-    await new Promise<void>(resolve => browser.on('disconnected', resolve));
+    if (autoClose) {
+      console.log('\n  Auto-closing browser.\n');
+      await browser.close();
+    } else {
+      console.log('\n  Browser left open for debugging. Close it when done.\n');
+      await new Promise<void>(resolve => browser.on('disconnected', resolve));
+    }
   }
 
   return { email, password, accountCreated, memberId, uuid, vertical };

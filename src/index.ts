@@ -40,6 +40,7 @@ export function parseArgs(argv: string[]): CliOptions {
     )
     .option('--platform <platform>', 'Target platform (web, mobile)', 'web')
     .option('--env <env>', 'Target environment', 'dev')
+    .option('--no-auto-close', 'Keep browser open after logging credentials (web only)')
     .addHelpText('after', `
 Steps by platform:
 
@@ -95,7 +96,7 @@ async function runWebFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[string
   const verticalConfig = VERTICAL_REGISTRY[opts.vertical];
   const payloads = await loadPayloads(opts.vertical);
   console.log(`\nStarting web enrollment → ${opts.step} (${opts.vertical})\n`);
-  await runWebEnrollmentFlow(opts.step, opts.tier as Tier, envConfig, verticalConfig, payloads.providerCreateDefaults.serviceType);
+  await runWebEnrollmentFlow(opts.step, opts.tier as Tier, envConfig, verticalConfig, payloads.providerCreateDefaults.serviceType, opts.autoClose);
 }
 
 async function runMobileFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[string]): Promise<void> {
