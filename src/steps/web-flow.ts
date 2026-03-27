@@ -2,6 +2,8 @@ import { chromium, type Page, type Browser } from 'playwright';
 import { nanoid } from 'nanoid';
 import type { EnvConfig, Tier } from '../types.js';
 import type { VerticalConfig } from '../verticals.js';
+import type { RunEmitter } from '../tui/emitter.js';
+import { STEP_DESCRIPTIONS } from '../tui/step-descriptions.js';
 
 export interface WebFlowResult {
   email: string;
@@ -23,6 +25,8 @@ export async function runWebEnrollmentFlow(
   verticalConfig: VerticalConfig,
   serviceType: string,
   autoClose = false,
+  emitter?: RunEmitter,
+  onStepComplete?: () => Promise<void>,
 ): Promise<WebFlowResult> {
   const email = `prov-${nanoid(6).toLowerCase()}@care.com`;
   const password = 'letmein1';
@@ -38,6 +42,36 @@ export async function runWebEnrollmentFlow(
   const context = await browser.newContext();
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
+
+  if (emitter) {
+    const STATIC_EXTS = /\.(js|css|png|jpg|jpeg|svg|gif|woff2?|ico|map)(\?|$)/;
+    const requestTimes = new Map<string, number>();
+
+    page.on('request', (req) => {
+      const url = req.url();
+      if (STATIC_EXTS.test(url)) return;
+      requestTimes.set(url, Date.now());
+      const shortUrl = url.replace(envConfig.baseUrl, '');
+      emitter.networkRequest(req.method(), shortUrl, req.postData() ?? undefined);
+    });
+
+    page.on('response', async (res) => {
+      const url = res.url();
+      if (STATIC_EXTS.test(url)) return;
+      const start = requestTimes.get(url);
+      const duration = start ? Date.now() - start : 0;
+      requestTimes.delete(url);
+      const shortUrl = url.replace(envConfig.baseUrl, '');
+      const body = await res.text().catch(() => '');
+      emitter.networkResponse(res.status(), shortUrl, duration, body.slice(0, 500));
+    });
+
+    page.on('framenavigated', (frame) => {
+      if (frame === page.mainFrame()) {
+        emitter.navigation(frame.url().replace(envConfig.baseUrl, ''));
+      }
+    });
+  }
 
   async function stop(stepName: string): Promise<WebFlowResult> {
     console.log(`\n✓ Browser stopped at: ${stepName}`);
@@ -76,28 +110,38 @@ export async function runWebEnrollmentFlow(
     console.log('  ⏳ Starting web enrollment flow...\n');
 
     /* ── Homepage → at-get-started ─────────────────────────── */
+    emitter?.stepStart('at-get-started', STEP_DESCRIPTIONS['at-get-started']);
     await waitForPageReady(page);
     await page.getByRole('link', { name: /join now/i }).first().click();
     await page.waitForURL('**/app/vhp/get-started**');
     await waitForPageReady(page);
     console.log('  ✓ at-get-started');
+    emitter?.stepComplete('at-get-started');
+    if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-get-started') return await stop('at-get-started');
 
     /* ── at-get-started → at-soft-intro-combined ───────────── */
+    emitter?.stepStart('at-soft-intro-combined', STEP_DESCRIPTIONS['at-soft-intro-combined']);
     await page.getByText(/find jobs/i).first().click();
     await page.waitForURL('**/provider/soft-intro-combined**');
     await waitForPageReady(page);
     console.log('  ✓ at-soft-intro-combined');
+    emitter?.stepComplete('at-soft-intro-combined');
+    if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-soft-intro-combined') return await stop('at-soft-intro-combined');
 
     /* ── at-soft-intro-combined → at-vertical-selection ────── */
+    emitter?.stepStart('at-vertical-selection', STEP_DESCRIPTIONS['at-vertical-selection']);
     await clickEnabledButton(page, /next/i);
     await page.waitForURL('**/vertical-triage**');
     await waitForPageReady(page);
     console.log('  ✓ at-vertical-selection');
+    emitter?.stepComplete('at-vertical-selection');
+    if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-vertical-selection') return await stop('at-vertical-selection');
 
     /* ── at-vertical-selection → at-location ───────────────── */
+    emitter?.stepStart('at-location', STEP_DESCRIPTIONS['at-location']);
     await selectVertical(page, verticalConfig);
     const alreadyNavigated = page.url().includes('/enrollment/provider/mv/location');
     if (!alreadyNavigated) {
@@ -109,9 +153,12 @@ export async function runWebEnrollmentFlow(
     await page.waitForURL('**/enrollment/provider/mv/location**', { timeout: 15_000 });
     await waitForPageReady(page);
     console.log('  ✓ at-location');
+    emitter?.stepComplete('at-location');
+    if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-location') return await stop('at-location');
 
     /* ── at-location → at-preferences ──────────────────────── */
+    emitter?.stepStart('at-preferences', STEP_DESCRIPTIONS['at-preferences']);
     await page.getByLabel(/zip/i).first().fill('72204');
     await clickEnabledButton(page, /next/i);
     await page.waitForURL(
@@ -120,6 +167,8 @@ export async function runWebEnrollmentFlow(
     );
     await waitForPageReady(page);
     console.log('  ✓ at-preferences');
+    emitter?.stepComplete('at-preferences');
+    if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-preferences') return await stop('at-preferences');
 
     /* ── at-preferences → at-family-count (or skip to account) */
@@ -132,7 +181,10 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
 
     if (page.url().includes('/family-count')) {
+      emitter?.stepStart('at-family-count', STEP_DESCRIPTIONS['at-family-count']);
       console.log('  ✓ at-family-count');
+      emitter?.stepComplete('at-family-count');
+      if (onStepComplete) await onStepComplete();
       if (targetStep === 'at-family-count') return await stop('at-family-count');
 
       await clickEnabledButton(page, /next/i);
@@ -142,30 +194,42 @@ export async function runWebEnrollmentFlow(
       console.log('  ✓ at-family-count (skipped — not applicable for this vertical)');
     }
 
+    emitter?.stepStart('at-account-creation', STEP_DESCRIPTIONS['at-account-creation']);
     console.log('  ✓ at-account-creation');
+    emitter?.stepComplete('at-account-creation');
+    if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-account-creation') return await stop('at-account-creation');
 
     /* ── at-account-creation → at-family-connection ────────── */
+    emitter?.stepStart('at-family-connection', STEP_DESCRIPTIONS['at-family-connection']);
     await fillAccountForm(page, email, password);
     await clickEnabledButton(page, /join now|create|submit|next/i, 30_000);
     accountCreated = true;
     await page.waitForURL('**/enrollment/provider/mv/family-connection**', { timeout: 30_000 });
     await waitForPageReady(page);
     console.log('  ✓ at-family-connection (account created)');
+    emitter?.stepComplete('at-family-connection');
+    if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-family-connection') return await stop('at-family-connection');
 
     /* ── at-family-connection → at-safety-screening ────────── */
+    emitter?.stepStart('at-safety-screening', STEP_DESCRIPTIONS['at-safety-screening']);
     await clickEnabledButton(page, /next|continue/i);
     await page.waitForURL('**/enrollment/provider/mv/safety-screening**');
     await waitForPageReady(page);
     console.log('  ✓ at-safety-screening');
+    emitter?.stepComplete('at-safety-screening');
+    if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-safety-screening') return await stop('at-safety-screening');
 
     /* ── at-safety-screening → at-subscriptions ────────────── */
+    emitter?.stepStart('at-subscriptions', STEP_DESCRIPTIONS['at-subscriptions']);
     await clickEnabledButton(page, /got it|next|continue/i);
     await page.waitForURL('**/ratecard/provider/rate-card**');
     await waitForPageReady(page);
     console.log('  ✓ at-subscriptions');
+    emitter?.stepComplete('at-subscriptions');
+    if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-subscriptions') return await stop('at-subscriptions');
 
     /* ── at-subscriptions → payment page (branches) ────────── */
@@ -182,14 +246,21 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
 
     if (goPremium) {
+      emitter?.stepStart('at-premium-payment', STEP_DESCRIPTIONS['at-premium-payment']);
       console.log('  ✓ at-premium-payment');
+      emitter?.stepComplete('at-premium-payment');
+      if (onStepComplete) await onStepComplete();
       if (targetStep === 'at-premium-payment') return await stop('at-premium-payment');
     } else {
+      emitter?.stepStart('at-basic-payment', STEP_DESCRIPTIONS['at-basic-payment']);
       console.log('  ✓ at-basic-payment');
+      emitter?.stepComplete('at-basic-payment');
+      if (onStepComplete) await onStepComplete();
       if (targetStep === 'at-basic-payment') return await stop('at-basic-payment');
     }
 
     /* ── payment → at-app-download ─────────────────────────── */
+    emitter?.stepStart('at-app-download', STEP_DESCRIPTIONS['at-app-download']);
     await fillCheckoutForm(page);
     // Give Stripe a moment to validate all fields before we try the button.
     await page.waitForTimeout(2000);
@@ -208,6 +279,8 @@ export async function runWebEnrollmentFlow(
     await page.waitForURL('**/enrollment/provider/mv/app-download**', { timeout: 60_000 });
     await waitForPageReady(page);
     console.log('  ✓ at-app-download');
+    emitter?.stepComplete('at-app-download');
+    if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-app-download') return await stop('at-app-download');
 
   } catch (error) {
