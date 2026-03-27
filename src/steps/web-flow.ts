@@ -1,6 +1,7 @@
 import { chromium, type Page, type Browser } from 'playwright';
 import { nanoid } from 'nanoid';
 import type { EnvConfig, Tier } from '../types.js';
+import type { VerticalConfig } from '../verticals.js';
 
 export interface WebFlowResult {
   email: string;
@@ -19,13 +20,15 @@ export async function runWebEnrollmentFlow(
   targetStep: string,
   tier: Tier,
   envConfig: EnvConfig,
+  verticalConfig: VerticalConfig,
+  serviceType: string,
 ): Promise<WebFlowResult> {
   const email = `prov-${nanoid(6).toLowerCase()}@care.com`;
   const password = 'letmein1';
   let accountCreated = false;
   let memberId: string | undefined;
   let uuid: string | undefined;
-  const vertical = 'CHILD_CARE';
+  const vertical = serviceType;
 
   const browser = await chromium.launch({
     headless: false,
@@ -87,7 +90,7 @@ export async function runWebEnrollmentFlow(
     if (targetStep === 'at-vertical-selection') return await stop('at-vertical-selection');
 
     /* ── at-vertical-selection → at-location ───────────────── */
-    await selectVertical(page);
+    await selectVertical(page, verticalConfig);
     const alreadyNavigated = page.url().includes('/enrollment/provider/mv/location');
     if (!alreadyNavigated) {
       const verticalNext = page.getByRole('button', { name: /continue|next/i }).first();
@@ -305,16 +308,16 @@ async function clickEnabledButton(
 
 /* ── Page interaction helpers ──────────────────────────────── */
 
-async function selectVertical(page: Page): Promise<void> {
+async function selectVertical(page: Page, verticalConfig: VerticalConfig): Promise<void> {
   // Wait for the page to settle — vertical triage tiles may lazy-load.
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.waitForTimeout(1000);
 
   // Strategy 1: Standard form controls
   const formStrategies = [
-    () => page.getByRole('checkbox', { name: /child\s*care/i }).first(),
-    () => page.getByRole('radio', { name: /child\s*care/i }).first(),
-    () => page.getByLabel(/child\s*care/i).first(),
+    () => page.getByRole('checkbox', { name: verticalConfig.webTilePattern }).first(),
+    () => page.getByRole('radio', { name: verticalConfig.webTilePattern }).first(),
+    () => page.getByLabel(verticalConfig.webTilePattern).first(),
   ];
 
   for (const getLocator of formStrategies) {
@@ -334,9 +337,9 @@ async function selectVertical(page: Page): Promise<void> {
     '[role="option"]',
     '[role="listbox"] > *',
     '[role="radiogroup"] > *',
-    '[data-testid*="childcare" i]',
-    '[data-testid*="child-care" i]',
-    '[data-testid*="child_care" i]',
+    `[data-testid*="${verticalConfig.webTestIdToken}" i]`,
+    `[data-testid*="${verticalConfig.webTestIdToken.replace(/care$/i, '-care')}" i]`,
+    `[data-testid*="${verticalConfig.webTestIdToken.replace(/care$/i, '_care')}" i]`,
     '[data-testid*="vertical" i]',
     '[class*="card" i]',
     '[class*="tile" i]',
@@ -347,7 +350,7 @@ async function selectVertical(page: Page): Promise<void> {
   ];
 
   for (const selector of tileSelectors) {
-    const el = page.locator(selector).filter({ hasText: /child\s*care/i }).first();
+    const el = page.locator(selector).filter({ hasText: verticalConfig.webTilePattern }).first();
     if (await el.isVisible({ timeout: 1000 }).catch(() => false)) {
       await el.click();
       await page.waitForTimeout(500);
@@ -357,10 +360,11 @@ async function selectVertical(page: Page): Promise<void> {
 
   // Strategy 3: Broad text match — click the element directly, then also try
   // clicking its parent (in case the text node isn't the interactive target).
-  const textEl = page.getByText(/child\s*care/i).first();
+  const textEl = page.getByText(verticalConfig.webTilePattern).first();
   if (await textEl.isVisible({ timeout: 1500 }).catch(() => false)) {
     // Click the parent element in case the text itself isn't the clickable target
-    const parentCard = page.locator(':has(> :text-matches("child\\\\s*care", "i"))').first();
+    const patternSource = verticalConfig.webTilePattern.source;
+    const parentCard = page.locator(`:has(> :text-matches("${patternSource}", "i"))`).first();
     if (await parentCard.isVisible({ timeout: 1000 }).catch(() => false)) {
       await parentCard.click();
     } else {
@@ -371,7 +375,7 @@ async function selectVertical(page: Page): Promise<void> {
   }
 
   throw new Error(
-    'Could not find the Child Care vertical on the vertical-triage page. ' +
+    `Could not find the ${verticalConfig.webTestIdToken} vertical on the vertical-triage page. ` +
     'The UI may have changed — update selectVertical() in web-flow.ts.',
   );
 }

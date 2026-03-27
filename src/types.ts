@@ -34,7 +34,7 @@ export type Step = (typeof WEB_STEPS)[number] | (typeof MOBILE_STEPS)[number];
 
 export type Tier = 'basic' | 'premium';
 
-export type Vertical = 'childcare';
+export type Vertical = 'childcare' | 'seniorcare' | 'petcare' | 'housekeeping' | 'tutoring';
 
 export interface CliOptions {
   step: Step;

@@ -1,5 +1,6 @@
 import type { ApiClient } from '../api/client.js';
 import type { ProviderContext, Step, Platform, EnvConfig } from '../types.js';
+import type { VerticalConfig } from '../verticals.js';
 import { MOBILE_STEPS } from '../types.js';
 import { createAccountMobile } from './account.js';
 import {
@@ -15,7 +16,8 @@ export interface StepDefinition {
     client: ApiClient,
     ctx: ProviderContext,
     payloads: any,
-    envConfig?: EnvConfig
+    envConfig?: EnvConfig,
+    verticalConfig?: VerticalConfig
   ) => Promise<void>;
 }
 

@@ -45,19 +45,10 @@ export async function mobileCompleteProfile(
   ctx: ProviderContext,
   payloads: any
 ): Promise<void> {
-  await client.restPostSpi('enroll/update/attribute', ctx.authToken, {
-    pageId: 'PREFERENCES',
-    milesWillingToTravel: '10',
-    ownTransportation: 'true',
-    'attr-sitter.smokes': 'false',
-    acceptsCreditCard: 'true',
-    availability: 'FULL_TIME',
-    hourlyRate: '10,25',
-    'attr-sitter.covid.vaccine.status': 'true',
-  });
+  await client.restPostSpi('enroll/update/attribute', ctx.authToken, payloads.mobilePreferencesInput);
   console.log('  ✓ Enrollment PREFERENCES set');
 
-  await addAvailability(client, ctx);
+  await addAvailability(client, ctx, payloads);
 
   await client.retryRequest(
     () =>
@@ -69,19 +60,10 @@ export async function mobileCompleteProfile(
   );
   console.log('  ✓ Universal availability set');
 
-  await client.restPostSpi('enroll/update/attribute', ctx.authToken, {
-    pageId: 'SKILLS',
-    'attr-service.childCare.numberOfChildren': '4',
-    yearsOfExperience: '5',
-    'attr-sitter.languagesSpoken': 'LANGUAGES020',
-    educationLevel: 'GRADUATE',
-  });
+  await client.restPostSpi('enroll/update/attribute', ctx.authToken, payloads.mobileSkillsInput);
   console.log('  ✓ Enrollment SKILLS set');
 
-  const bioResult = await client.restPostSpi('enroll/update/bio', ctx.authToken, {
-    experienceSummary:
-      'I have 3 years of experience in child care. I am reliable, caring, and passionate about providing safe and fun environments for children.',
-  });
+  const bioResult = await client.restPostSpi('enroll/update/bio', ctx.authToken, payloads.mobileBioInput);
   console.log('  ✓ Enrollment Bio set');
 
   await uploadPhoto(client, ctx);
@@ -91,7 +73,8 @@ export async function mobileCompleteProfile(
 
 async function addAvailability(
   client: ApiClient,
-  ctx: ProviderContext
+  ctx: ProviderContext,
+  payloads: any
 ): Promise<void> {
   const today = new Date();
   const end = new Date(today);
@@ -101,7 +84,7 @@ async function addAvailability(
   const payload = {
     startDateInLocal: fmt(today),
     endDateInLocal: fmt(end),
-    additionalNotes: 'Available for child care work',
+    additionalNotes: payloads.availabilityNotes ?? 'Available for work',
     currentSearchStatus: 'LOOKING',
     jobInterests: [
       { interestType: 'ONE_TIME', interestDetails: { min: '5', max: '10', unitType: 'PER_JOB', source: 'enrollment' }, status: 'ACTIVE' },

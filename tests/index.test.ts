@@ -57,4 +57,16 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--step', 'pre-upgrade'])).toThrow();
     expect(() => parseArgs(['--step', 'account-created'])).toThrow();
   });
+
+  it('accepts all vertical names', () => {
+    const verticals = ['childcare', 'seniorcare', 'petcare', 'housekeeping', 'tutoring'];
+    for (const v of verticals) {
+      const opts = parseArgs(['--step', 'at-location', '--vertical', v]);
+      expect(opts.vertical).toBe(v);
+    }
+  });
+
+  it('rejects invalid vertical', () => {
+    expect(() => parseArgs(['--step', 'at-location', '--vertical', 'dogwalking'])).toThrow();
+  });
 });

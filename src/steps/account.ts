@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import mysql from 'mysql2/promise';
 import type { ApiClient } from '../api/client.js';
 import type { ProviderContext, EnvConfig } from '../types.js';
+import type { VerticalConfig } from '../verticals.js';
 import { PROVIDER_CREATE } from '../api/graphql.js';
 
 const GET_MEMBER_UUID = `
@@ -75,7 +76,8 @@ export async function createAccountMobile(
   client: ApiClient,
   ctx: ProviderContext,
   payloads: any,
-  envConfig?: EnvConfig
+  envConfig?: EnvConfig,
+  verticalConfig?: VerticalConfig
 ): Promise<void> {
   const suffix = nanoid(6).toLowerCase();
   ctx.email = `prov-${suffix}@care.com`;
@@ -113,8 +115,8 @@ export async function createAccountMobile(
       city: payloads.p2pStripeAccountInput.city,
       state: payloads.p2pStripeAccountInput.state,
       zip: payloads.providerCreateDefaults.zipcode,
-      serviceId: 'CHILDCARE',
-      subServiceId: 'babysitter',
+      serviceId: verticalConfig?.serviceId ?? 'CHILDCARE',
+      subServiceId: verticalConfig?.subServiceId ?? 'babysitter',
     }
   );
 

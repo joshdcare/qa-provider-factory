@@ -2,9 +2,10 @@
 name: qa-provider-factory
 description: >-
   Create test provider accounts at specific enrollment checkpoints for the PEXP
-  team. Supports web and mobile (Android) platforms, Child Care vertical, Basic
-  and Premium tiers. Use when asked to create a test provider, generate a QA
-  user, set up an enrollment test account, or run the provider factory.
+  team. Supports web and mobile (Android) platforms, multiple verticals (Child
+  Care, Senior Care, Pet Care, Housekeeping, Tutoring), Basic and Premium tiers.
+  Use when asked to create a test provider, generate a QA user, set up an
+  enrollment test account, or run the provider factory.
 ---
 
 # QA Provider Factory
@@ -34,8 +35,18 @@ Ask a team lead for these values if you don't have them.
 cd qa-provider-factory
 npm install
 npx playwright install chromium
-npm run dev -- --step <step> --platform <platform> [--tier basic|premium]
+npm run dev -- --step <step> --platform <platform> [--vertical <vertical>] [--tier basic|premium]
 ```
+
+## Supported Verticals
+
+| Vertical | `--vertical` flag | Status |
+|----------|------------------|--------|
+| Child Care | `childcare` (default) | Validated |
+| Senior Care | `seniorcare` | Best-effort — validate by running |
+| Pet Care | `petcare` | Best-effort — validate by running |
+| Housekeeping | `housekeeping` | Best-effort — validate by running |
+| Tutoring | `tutoring` | Best-effort — validate by running |
 
 ## Enrollment Steps
 
@@ -78,8 +89,11 @@ Mobile uses API calls to set up account state at each checkpoint.
 ## Common Commands
 
 ```bash
-# Web — stop at the location page
+# Web — stop at the location page (default: childcare)
 npm run dev -- --step at-location --platform web
+
+# Web — senior care at vertical selection
+npm run dev -- --step at-vertical-selection --platform web --vertical seniorcare
 
 # Web — stop at basic checkout page
 npm run dev -- --step at-basic-payment --platform web
@@ -95,6 +109,12 @@ npm run dev -- --step at-availability --platform mobile
 
 # Mobile — fully enrolled premium user
 npm run dev -- --step fully-enrolled --platform mobile --tier premium
+
+# Mobile — senior care fully enrolled
+npm run dev -- --step fully-enrolled --platform mobile --vertical seniorcare --tier premium
+
+# Mobile — pet care at build profile
+npm run dev -- --step at-build-profile --platform mobile --vertical petcare
 ```
 
 ## Output

@@ -6,6 +6,7 @@ import type { Step, Tier, Vertical, Platform, CliOptions, ProviderContext } from
 import { ApiClient } from './api/client.js';
 import { getAccessToken } from './api/auth.js';
 import { getStepsUpTo } from './steps/registry.js';
+import { VERTICAL_REGISTRY } from './verticals.js';
 
 export function parseArgs(argv: string[]): CliOptions {
   const program = new Command();
@@ -25,7 +26,18 @@ export function parseArgs(argv: string[]): CliOptions {
       }
     )
     .option('--tier <tier>', 'Subscription tier (basic, premium)', 'premium')
-    .option('--vertical <vertical>', 'Service vertical', 'childcare')
+    .option(
+      '--vertical <vertical>',
+      'Service vertical (childcare, seniorcare, petcare, housekeeping, tutoring)',
+      (value: string) => {
+        const valid = ['childcare', 'seniorcare', 'petcare', 'housekeeping', 'tutoring'];
+        if (!valid.includes(value)) {
+          throw new Error(`Invalid vertical "${value}". Valid: ${valid.join(', ')}`);
+        }
+        return value as Vertical;
+      },
+      'childcare'
+    )
     .option('--platform <platform>', 'Target platform (web, mobile)', 'web')
     .option('--env <env>', 'Target environment', 'dev')
     .addHelpText('after', `
@@ -65,6 +77,14 @@ async function loadPayloads(vertical: Vertical) {
   switch (vertical) {
     case 'childcare':
       return import('./payloads/childcare.js');
+    case 'seniorcare':
+      return import('./payloads/seniorcare.js');
+    case 'petcare':
+      return import('./payloads/petcare.js');
+    case 'housekeeping':
+      return import('./payloads/housekeeping.js');
+    case 'tutoring':
+      return import('./payloads/tutoring.js');
     default:
       throw new Error(`Unsupported vertical: ${vertical}`);
   }
@@ -72,13 +92,16 @@ async function loadPayloads(vertical: Vertical) {
 
 async function runWebFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[string]): Promise<void> {
   const { runWebEnrollmentFlow } = await import('./steps/web-flow.js');
-  console.log(`\nStarting web enrollment → ${opts.step}\n`);
-  await runWebEnrollmentFlow(opts.step, opts.tier as Tier, envConfig);
+  const verticalConfig = VERTICAL_REGISTRY[opts.vertical];
+  const payloads = await loadPayloads(opts.vertical);
+  console.log(`\nStarting web enrollment → ${opts.step} (${opts.vertical})\n`);
+  await runWebEnrollmentFlow(opts.step, opts.tier as Tier, envConfig, verticalConfig, payloads.providerCreateDefaults.serviceType);
 }
 
 async function runMobileFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[string]): Promise<void> {
   const client = new ApiClient(envConfig.baseUrl, envConfig.apiKey);
   const payloads = await loadPayloads(opts.vertical);
+  const verticalConfig = VERTICAL_REGISTRY[opts.vertical];
 
   const ctx: ProviderContext = {
     email: '',
@@ -100,7 +123,7 @@ async function runMobileFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[str
     }
 
     try {
-      await step.runner(client, ctx, payloads, envConfig);
+      await step.runner(client, ctx, payloads, envConfig, verticalConfig);
     } catch (err) {
       console.error(`\n✗ Failed at step: ${step.name}`);
       console.error(`  Error: ${(err as Error).message}`);

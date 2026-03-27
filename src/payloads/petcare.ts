@@ -1,5 +1,5 @@
 export const providerCreateDefaults = {
-  serviceType: 'CHILD_CARE',
+  serviceType: 'PET_CARE',
   zipcode: '72204',
   firstName: 'Martina',
   lastName: 'Goodram',
@@ -14,22 +14,21 @@ export const providerNameUpdateInput = {
 };
 
 export const saveMultipleVerticalsInput = {
-  serviceIds: ['PETCAREXX', 'HOUSEKEEP', 'SENIRCARE', 'TUTORINGX'],
+  serviceIds: ['CHILDCARE', 'HOUSEKEEP', 'SENIRCARE', 'TUTORINGX'],
   test: 'mv_PTA',
   testVariance: 'mv_unlimited_PTA',
 };
 
 export const caregiverAttributesUpdateInput = {
-  childcare: {
-    ageGroups: ['NEWBORN', 'EARLY_SCHOOL', 'TODDLER', 'ELEMENTARY_SCHOOL'],
-    numberOfChildren: 2,
+  caregiver: {
+    yearsOfExperience: 3,
   },
-  serviceType: 'CHILD_CARE',
+  serviceType: 'PET_CARE',
 };
 
 export const providerJobInterestUpdateInput = {
   source: 'ENROLLMENT',
-  serviceType: 'CHILD_CARE',
+  serviceType: 'PET_CARE',
   recurringJobInterest: {
     jobRate: {
       maximum: { amount: '21', currencyCode: 'USD' },
@@ -52,10 +51,10 @@ export const providerUniversalAvailabilityInput = {
 
 export const providerBiographyInput = {
   experienceSummary:
-    'I have 3 year of experience. I can help with caregiver. I have some other experience as well.I have 3 year of experience. I can help with caregiver. I have some other experience as well.',
-  serviceType: 'CHILD_CARE',
+    'I have 3 years of experience in pet care. I am reliable and love working with dogs and cats, providing walks, feeding, and attentive companionship.',
+  serviceType: 'PET_CARE',
   title:
-    'I have 3 year of experience. I can help with caregiver. I have some other experience as well.',
+    'I have 3 years of experience in pet care. I love dogs and cats and provide dependable walking and sitting services.',
 };
 
 export const caregiverAttributesSecondUpdateInput = {
@@ -68,35 +67,18 @@ export const caregiverAttributesSecondUpdateInput = {
     smokes: true,
     yearsOfExperience: 3,
   },
-  childcare: {
-    ageGroups: null,
-    careForSickChild: false,
-    carpooling: true,
-    certifiedNursingAssistant: false,
-    certifiedRegistedNurse: false,
-    certifiedTeacher: true,
-    childDevelopmentAssociate: false,
-    cprTrained: true,
-    craftAssistance: false,
-    doula: false,
-    earlyChildDevelopmentCoursework: true,
-    earlyChildhoodEducation: false,
-    errands: true,
-    expSpecialNeedsChildren: false,
-    experienceWithTwins: false,
-    firstAidTraining: true,
-    groceryShopping: true,
-    laundryAssistance: true,
-    lightHousekeeping: true,
-    mealPreparation: true,
-    nafccCertified: false,
-    trustlineCertifiedCalifornia: false,
-    travel: true,
-    swimmingSupervision: true,
-    remoteLearningAssistance: false,
-    numberOfChildren: 1,
+  petCare: {
+    dogWalking: true,
+    petSitting: true,
+    petGrooming: false,
+    overnightCare: true,
+    petTransport: true,
+    medicationAdministration: false,
+    puppyCare: true,
+    seniorPetCare: true,
+    numberOfPets: 2,
   },
-  serviceType: 'CHILD_CARE',
+  serviceType: 'PET_CARE',
 };
 
 export const notificationSettingCreateInput = {
@@ -165,7 +147,6 @@ export const mobilePreferencesInput = {
 
 export const mobileSkillsInput = {
   pageId: 'SKILLS',
-  'attr-service.childCare.numberOfChildren': '4',
   yearsOfExperience: '5',
   'attr-sitter.languagesSpoken': 'LANGUAGES020',
   educationLevel: 'GRADUATE',
@@ -173,7 +154,7 @@ export const mobileSkillsInput = {
 
 export const mobileBioInput = {
   experienceSummary:
-    'I have 3 years of experience in child care. I am reliable, caring, and passionate about providing safe and fun environments for children.',
+    'I have 3 years of experience in pet care. I am reliable and love working with dogs and cats, providing walks, feeding, and attentive companionship.',
 };
 
-export const availabilityNotes = 'Available for child care work';
+export const availabilityNotes = 'Available for pet care work';
