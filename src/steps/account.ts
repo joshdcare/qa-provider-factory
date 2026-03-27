@@ -3,6 +3,7 @@ import mysql from 'mysql2/promise';
 import type { ApiClient } from '../api/client.js';
 import type { ProviderContext, EnvConfig } from '../types.js';
 import type { VerticalConfig } from '../verticals.js';
+import type { RunEmitter } from '../tui/emitter.js';
 import { PROVIDER_CREATE } from '../api/graphql.js';
 
 const GET_MEMBER_UUID = `
@@ -16,7 +17,8 @@ export async function createAccount(
   client: ApiClient,
   ctx: ProviderContext,
   payloads: any,
-  envConfig?: EnvConfig
+  envConfig?: EnvConfig,
+  emitter?: RunEmitter
 ): Promise<void> {
   const suffix = nanoid(6).toLowerCase();
   ctx.email = `prov-${suffix}@care.com`;
@@ -69,6 +71,10 @@ export async function createAccount(
     }
   }
 
+  emitter?.contextUpdate('email', ctx.email);
+  emitter?.contextUpdate('memberId', String(ctx.memberId));
+  if (ctx.uuid) emitter?.contextUpdate('uuid', ctx.uuid);
+
   console.log(`  ✓ Account created: ${ctx.email} (ID: ${ctx.memberId})`);
 }
 
@@ -77,7 +83,8 @@ export async function createAccountMobile(
   ctx: ProviderContext,
   payloads: any,
   envConfig?: EnvConfig,
-  verticalConfig?: VerticalConfig
+  verticalConfig?: VerticalConfig,
+  emitter?: RunEmitter
 ): Promise<void> {
   const suffix = nanoid(6).toLowerCase();
   ctx.email = `prov-${suffix}@care.com`;
@@ -147,6 +154,10 @@ export async function createAccountMobile(
       console.warn(`  ⚠ Could not retrieve UUID (DB unavailable): ${(err as Error).message}`);
     }
   }
+
+  emitter?.contextUpdate('email', ctx.email);
+  emitter?.contextUpdate('memberId', String(ctx.memberId));
+  if (ctx.uuid) emitter?.contextUpdate('uuid', ctx.uuid);
 
   console.log(`  ✓ Account created (lite+upgrade): ${ctx.email} (ID: ${ctx.memberId})`);
 }

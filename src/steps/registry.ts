@@ -1,6 +1,7 @@
 import type { ApiClient } from '../api/client.js';
 import type { ProviderContext, Step, Platform, EnvConfig } from '../types.js';
 import type { VerticalConfig } from '../verticals.js';
+import type { RunEmitter } from '../tui/emitter.js';
 import { MOBILE_STEPS } from '../types.js';
 import { createAccountMobile } from './account.js';
 import {
@@ -17,7 +18,8 @@ export interface StepDefinition {
     ctx: ProviderContext,
     payloads: any,
     envConfig?: EnvConfig,
-    verticalConfig?: VerticalConfig
+    verticalConfig?: VerticalConfig,
+    emitter?: RunEmitter
   ) => Promise<void>;
 }
 
