@@ -1,16 +1,15 @@
 {
-  "name": "qa-provider-factory",
-  "version": "1.0.0",
-  "description": "CLI tool to create providers at specific enrollment checkpoints",
+  "name": "jumper",
+  "version": "2.0.0",
+  "description": "Jump to any provider enrollment checkpoint in seconds",
   "type": "module",
   "bin": {
-    "qa-provider-factory": "./dist/index.js"
+    "jumper": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node --no-warnings dist/index.js",
     "dev": "tsx src/index.ts",
-    "create": "tsx src/index.ts --",
     "test": "vitest run",
     "test:watch": "vitest"
   },

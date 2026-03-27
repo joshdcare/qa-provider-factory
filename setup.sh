@@ -32,8 +32,8 @@ fail() {
 }
 
 echo ""
-echo -e "${BOLD}qa-provider-factory setup${RESET}"
-echo -e "${DIM}────────────────────────${RESET}"
+echo -e "${BOLD}jumper setup${RESET}"
+echo -e "${DIM}────────────${RESET}"
 
 # ── 1. Check Node.js ──────────────────────────────────────────────
 
@@ -134,10 +134,10 @@ echo -e "${GREEN}${BOLD}✓ Setup complete!${RESET}"
 echo ""
 echo -e "  ${BOLD}Quick start:${RESET}"
 echo -e "    ${DIM}# Web — stop at the location page${RESET}"
-echo -e "    npm run create -- --step at-location --platform web"
+echo -e "    ./jumper at-location"
 echo ""
 echo -e "    ${DIM}# Mobile — fully enrolled Premium user${RESET}"
-echo -e "    npm run create -- --step fully-enrolled --platform mobile"
+echo -e "    ./jumper fully-enrolled -m"
 echo ""
 echo -e "  ${BOLD}Reminders:${RESET}"
 echo -e "    • Connect to the ${BOLD}VPN${RESET} before running — SPI endpoints and the dev DB require it."
