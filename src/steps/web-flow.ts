@@ -4,6 +4,8 @@ import type { EnvConfig, Tier } from '../types.js';
 import type { VerticalConfig } from '../verticals.js';
 import type { RunEmitter } from '../tui/emitter.js';
 import { STEP_DESCRIPTIONS } from '../tui/step-descriptions.js';
+import type { RunRecorder } from '../recorder/run-recorder.js';
+import { truncate } from '../recorder/truncate.js';
 
 export interface WebFlowResult {
   email: string;
@@ -27,6 +29,7 @@ export async function runWebEnrollmentFlow(
   autoClose = false,
   emitter?: RunEmitter,
   onStepComplete?: () => Promise<void>,
+  recorder?: RunRecorder,
 ): Promise<WebFlowResult> {
   const email = `prov-${nanoid(6).toLowerCase()}@care.com`;
   const password = 'letmein1';
@@ -39,7 +42,11 @@ export async function runWebEnrollmentFlow(
     headless: false,
     args: ['--incognito'],
   });
-  const context = await browser.newContext();
+  const contextOptions = recorder?.playwrightContextOptions() ?? {};
+  const context = await browser.newContext(contextOptions);
+  if (recorder) {
+    await recorder.startTrace(context, browser);
+  }
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
 
@@ -52,7 +59,7 @@ export async function runWebEnrollmentFlow(
       if (STATIC_EXTS.test(url)) return;
       requestTimes.set(url, Date.now());
       const shortUrl = url.replace(envConfig.baseUrl, '');
-      emitter.networkRequest(req.method(), shortUrl, req.postData() ?? undefined);
+      emitter.networkRequest(req.method(), shortUrl, truncate(req.postData() ?? ''));
     });
 
     page.on('response', async (res) => {
@@ -63,7 +70,7 @@ export async function runWebEnrollmentFlow(
       requestTimes.delete(url);
       const shortUrl = url.replace(envConfig.baseUrl, '');
       const body = await res.text().catch(() => '');
-      emitter.networkResponse(res.status(), shortUrl, duration, body.slice(0, 500));
+      emitter.networkResponse(res.status(), shortUrl, duration, truncate(body));
     });
 
     page.on('framenavigated', (frame) => {
@@ -94,8 +101,10 @@ export async function runWebEnrollmentFlow(
       console.log(`    Password:   ${password}`);
     }
     if (autoClose) {
-      console.log('\n  Auto-closing browser.\n');
-      await browser.close();
+      if (!recorder) {
+        console.log('\n  Auto-closing browser.\n');
+        await browser.close();
+      }
     } else {
       console.log('\n  Close the browser when you\'re done.\n');
       await new Promise<void>(resolve => {
@@ -104,6 +113,8 @@ export async function runWebEnrollmentFlow(
     }
     return { email, password, accountCreated, memberId, uuid, vertical };
   }
+
+  let stepIndex = 0;
 
   try {
     await page.goto(envConfig.baseUrl);
@@ -117,6 +128,8 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
     console.log('  ✓ at-get-started');
     emitter?.stepComplete('at-get-started');
+    stepIndex++;
+    await recorder?.screenshot(page, 'at-get-started', stepIndex);
     if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-get-started') return await stop('at-get-started');
 
@@ -127,6 +140,8 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
     console.log('  ✓ at-soft-intro-combined');
     emitter?.stepComplete('at-soft-intro-combined');
+    stepIndex++;
+    await recorder?.screenshot(page, 'at-soft-intro-combined', stepIndex);
     if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-soft-intro-combined') return await stop('at-soft-intro-combined');
 
@@ -137,6 +152,8 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
     console.log('  ✓ at-vertical-selection');
     emitter?.stepComplete('at-vertical-selection');
+    stepIndex++;
+    await recorder?.screenshot(page, 'at-vertical-selection', stepIndex);
     if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-vertical-selection') return await stop('at-vertical-selection');
 
@@ -154,6 +171,8 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
     console.log('  ✓ at-location');
     emitter?.stepComplete('at-location');
+    stepIndex++;
+    await recorder?.screenshot(page, 'at-location', stepIndex);
     if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-location') return await stop('at-location');
 
@@ -168,6 +187,8 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
     console.log('  ✓ at-preferences');
     emitter?.stepComplete('at-preferences');
+    stepIndex++;
+    await recorder?.screenshot(page, 'at-preferences', stepIndex);
     if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-preferences') return await stop('at-preferences');
 
@@ -184,6 +205,8 @@ export async function runWebEnrollmentFlow(
       emitter?.stepStart('at-family-count', STEP_DESCRIPTIONS['at-family-count']);
       console.log('  ✓ at-family-count');
       emitter?.stepComplete('at-family-count');
+      stepIndex++;
+      await recorder?.screenshot(page, 'at-family-count', stepIndex);
       if (onStepComplete) await onStepComplete();
       if (targetStep === 'at-family-count') return await stop('at-family-count');
 
@@ -197,6 +220,8 @@ export async function runWebEnrollmentFlow(
     emitter?.stepStart('at-account-creation', STEP_DESCRIPTIONS['at-account-creation']);
     console.log('  ✓ at-account-creation');
     emitter?.stepComplete('at-account-creation');
+    stepIndex++;
+    await recorder?.screenshot(page, 'at-account-creation', stepIndex);
     if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-account-creation') return await stop('at-account-creation');
 
@@ -209,6 +234,8 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
     console.log('  ✓ at-family-connection (account created)');
     emitter?.stepComplete('at-family-connection');
+    stepIndex++;
+    await recorder?.screenshot(page, 'at-family-connection', stepIndex);
     if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-family-connection') return await stop('at-family-connection');
 
@@ -219,6 +246,8 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
     console.log('  ✓ at-safety-screening');
     emitter?.stepComplete('at-safety-screening');
+    stepIndex++;
+    await recorder?.screenshot(page, 'at-safety-screening', stepIndex);
     if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-safety-screening') return await stop('at-safety-screening');
 
@@ -229,6 +258,8 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
     console.log('  ✓ at-subscriptions');
     emitter?.stepComplete('at-subscriptions');
+    stepIndex++;
+    await recorder?.screenshot(page, 'at-subscriptions', stepIndex);
     if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-subscriptions') return await stop('at-subscriptions');
 
@@ -249,12 +280,16 @@ export async function runWebEnrollmentFlow(
       emitter?.stepStart('at-premium-payment', STEP_DESCRIPTIONS['at-premium-payment']);
       console.log('  ✓ at-premium-payment');
       emitter?.stepComplete('at-premium-payment');
+      stepIndex++;
+      await recorder?.screenshot(page, 'at-premium-payment', stepIndex);
       if (onStepComplete) await onStepComplete();
       if (targetStep === 'at-premium-payment') return await stop('at-premium-payment');
     } else {
       emitter?.stepStart('at-basic-payment', STEP_DESCRIPTIONS['at-basic-payment']);
       console.log('  ✓ at-basic-payment');
       emitter?.stepComplete('at-basic-payment');
+      stepIndex++;
+      await recorder?.screenshot(page, 'at-basic-payment', stepIndex);
       if (onStepComplete) await onStepComplete();
       if (targetStep === 'at-basic-payment') return await stop('at-basic-payment');
     }
@@ -280,6 +315,8 @@ export async function runWebEnrollmentFlow(
     await waitForPageReady(page);
     console.log('  ✓ at-app-download');
     emitter?.stepComplete('at-app-download');
+    stepIndex++;
+    await recorder?.screenshot(page, 'at-app-download', stepIndex);
     if (onStepComplete) await onStepComplete();
     if (targetStep === 'at-app-download') return await stop('at-app-download');
 
