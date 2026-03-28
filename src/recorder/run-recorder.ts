@@ -9,6 +9,7 @@ import type {
   ReportMeta,
   RunReport,
 } from './types.js';
+import { generateHtmlReport } from './html-template.js';
 
 export interface RunRecorderConfig {
   platform: 'mobile' | 'web';
@@ -110,7 +111,10 @@ export class RunRecorder {
       path.join(this.runDir, 'report.json'),
       JSON.stringify(report, null, 2),
     );
-    fs.writeFileSync(path.join(this.runDir, 'report.html'), '');
+
+    const screenshots = this.loadScreenshots();
+    const html = generateHtmlReport(report, screenshots);
+    fs.writeFileSync(path.join(this.runDir, 'report.html'), html);
 
     console.log(`  📁 Run saved to: ${this.runDir}`);
 
@@ -201,6 +205,20 @@ export class RunRecorder {
       });
     }
     this.pendingRequests.clear();
+  }
+
+  private loadScreenshots(): Record<string, Buffer> {
+    const screenshotsDir = path.join(this.runDir, 'screenshots');
+    const result: Record<string, Buffer> = {};
+    if (!fs.existsSync(screenshotsDir)) return result;
+
+    const files = fs.readdirSync(screenshotsDir);
+    for (const file of files) {
+      if (/\.(png|jpe?g|gif|webp)$/i.test(file)) {
+        result[`screenshots/${file}`] = fs.readFileSync(path.join(screenshotsDir, file));
+      }
+    }
+    return result;
   }
 
   private formatTimestamp(d: Date): string {
