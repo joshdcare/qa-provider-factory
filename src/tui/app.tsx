@@ -58,6 +58,7 @@ async function runWebExecution(
         result.autoClose,
         emitter,
         onStepComplete,
+        undefined,
       );
 
       emitter.contextUpdate('vertical', vertical);
@@ -136,6 +137,11 @@ async function runExecution(
   emitter: RunEmitter,
   continueRef: React.MutableRefObject<(() => void) | null>,
 ): Promise<void> {
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...args: unknown[]) => emitter.info(args.join(' '));
+  console.error = (...args: unknown[]) => emitter.info(`[error] ${args.join(' ')}`);
+
   try {
     if (result.platform === 'web') {
       await runWebExecution(result, envConfig, emitter, continueRef);
@@ -145,6 +151,8 @@ async function runExecution(
   } catch (err) {
     emitter.stepError('fatal', (err as Error).message);
   } finally {
+    console.log = originalLog;
+    console.error = originalError;
     emitter.runComplete();
   }
 }

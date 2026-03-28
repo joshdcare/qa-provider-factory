@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import 'dotenv/config';
 import { Command, CommanderError } from 'commander';
+import ora from 'ora';
 import { ALL_STEPS, WEB_STEPS, MOBILE_STEPS, ENV_CONFIGS } from './types.js';
 import type { Step, Tier, Vertical, Platform, CliOptions, ProviderContext } from './types.js';
 import { ApiClient } from './api/client.js';
 import { getAccessToken } from './api/auth.js';
 import { getStepsUpTo } from './steps/registry.js';
 import { VERTICAL_REGISTRY } from './verticals.js';
+import { RunEmitter, consoleAdapter } from './tui/emitter.js';
+import { RunRecorder } from './recorder/run-recorder.js';
 
 const BANNER = 'QA Provider Factory — create test providers at enrollment checkpoints.';
 
@@ -118,16 +121,68 @@ async function loadPayloads(vertical: Vertical) {
   }
 }
 
+function registerShutdownHandlers(recorder: RunRecorder): void {
+  const handler = async () => {
+    await recorder.finish({ email: '', password: '' });
+    process.exit(1);
+  };
+  process.once('SIGINT', handler);
+  process.once('SIGTERM', handler);
+}
+
 async function runWebFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[string]): Promise<void> {
   const { runWebEnrollmentFlow } = await import('./steps/web-flow.js');
+  const emitter = new RunEmitter();
+  consoleAdapter(emitter);
+  const recorder = new RunRecorder({
+    platform: 'web',
+    vertical: opts.vertical,
+    tier: opts.tier,
+    targetStep: opts.step,
+  });
+  recorder.attach(emitter);
+  registerShutdownHandlers(recorder);
+
   const verticalConfig = VERTICAL_REGISTRY[opts.vertical];
   const payloads = await loadPayloads(opts.vertical);
   console.log(`\nStarting web enrollment → ${opts.step} (${opts.vertical})\n`);
-  await runWebEnrollmentFlow(opts.step, opts.tier as Tier, envConfig, verticalConfig, payloads.providerCreateDefaults.serviceType, opts.autoClose);
+
+  let webResult: Awaited<ReturnType<typeof runWebEnrollmentFlow>> | undefined;
+  try {
+    webResult = await runWebEnrollmentFlow(
+      opts.step, opts.tier as Tier, envConfig, verticalConfig,
+      payloads.providerCreateDefaults.serviceType, opts.autoClose,
+      emitter, undefined, recorder,
+    );
+  } catch (err) {
+    recorder.recordError('web-flow', err as Error);
+    console.error(`\nWeb flow error: ${(err as Error).message}`);
+  } finally {
+    await recorder.finish({
+      email: webResult?.email ?? '',
+      password: webResult?.password ?? '',
+      memberId: webResult?.memberId,
+      vertical: webResult?.vertical,
+    });
+  }
+
+  if (!webResult) process.exit(1);
 }
 
 async function runMobileFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[string]): Promise<void> {
+  const emitter = new RunEmitter();
+  consoleAdapter(emitter);
+  const recorder = new RunRecorder({
+    platform: 'mobile',
+    vertical: opts.vertical,
+    tier: opts.tier,
+    targetStep: opts.step,
+  });
+  recorder.attach(emitter);
+  registerShutdownHandlers(recorder);
+
   const client = new ApiClient(envConfig.baseUrl, envConfig.apiKey);
+  client.setEmitter(emitter);
   const payloads = await loadPayloads(opts.vertical);
   const verticalConfig = VERTICAL_REGISTRY[opts.vertical];
 
@@ -143,26 +198,43 @@ async function runMobileFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[str
   const steps = getStepsUpTo(opts.step, opts.platform);
   console.log(`\nCreating provider at step: ${opts.step} (mobile)\n`);
 
-  for (const step of steps) {
-    if (step.name !== 'account-created' && !ctx.accessToken) {
-      console.log('  ⏳ Acquiring access token...');
-      ctx.accessToken = await getAccessToken(ctx.email, envConfig.baseUrl);
-      client.setAccessToken(ctx.accessToken);
-    }
-
-    try {
-      await step.runner(client, ctx, payloads, envConfig, verticalConfig);
-    } catch (err) {
-      console.error(`\n✗ Failed at step: ${step.name}`);
-      console.error(`  Error: ${(err as Error).message}`);
-      if (ctx.email) {
-        console.log('\n  Partial provider created:');
-        console.log(`    Email:    ${ctx.email}`);
-        console.log(`    Password: ${ctx.password}`);
-        if (ctx.memberId) console.log(`    MemberId: ${ctx.memberId}`);
+  let failed = false;
+  try {
+    for (const step of steps) {
+      if (step.name !== 'account-created' && !ctx.accessToken) {
+        const authSpinner = ora('Acquiring access token…').start();
+        ctx.accessToken = await getAccessToken(ctx.email, envConfig.baseUrl);
+        client.setAccessToken(ctx.accessToken);
+        authSpinner.succeed('Access token acquired');
       }
-      process.exit(1);
+
+      emitter.stepStart(step.name, step.name);
+      const spinner = ora(step.name).start();
+      try {
+        await step.runner(client, ctx, payloads, envConfig, verticalConfig, emitter);
+        spinner.succeed(step.name);
+        emitter.stepComplete(step.name);
+      } catch (err) {
+        spinner.fail(step.name);
+        emitter.stepError(step.name, (err as Error).message);
+        recorder.recordError(step.name, err as Error);
+        console.error(`  Error: ${(err as Error).message}`);
+        failed = true;
+        break;
+      }
     }
+  } finally {
+    await recorder.finish(ctx);
+  }
+
+  if (failed) {
+    if (ctx.email) {
+      console.log('\n  Partial provider created:');
+      console.log(`    Email:    ${ctx.email}`);
+      console.log(`    Password: ${ctx.password}`);
+      if (ctx.memberId) console.log(`    MemberId: ${ctx.memberId}`);
+    }
+    process.exit(1);
   }
 
   console.log(`\n✓ Provider created at step: ${opts.step} (mobile)\n`);
