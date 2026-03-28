@@ -1,4 +1,5 @@
 import type { RunEmitter } from '../tui/emitter.js';
+import { truncate } from '../recorder/truncate.js';
 
 export class ApiClient {
   readonly baseUrl: string;
@@ -22,13 +23,23 @@ export class ApiClient {
   private async trackedFetch(url: string, init: RequestInit): Promise<Response> {
     const method = init.method ?? 'GET';
     const shortUrl = url.replace(this.baseUrl, '');
-    this.emitter?.networkRequest(method, shortUrl, typeof init.body === 'string' ? init.body : undefined);
+
+    let requestBody: string | undefined;
+    if (typeof init.body === 'string') {
+      requestBody = truncate(init.body);
+    } else if (init.body instanceof FormData) {
+      requestBody = `[FormData: ${[...init.body.keys()].length} fields]`;
+    }
+    this.emitter?.networkRequest(method, shortUrl, requestBody);
+
     const start = Date.now();
     const res = await fetch(url, init);
     const duration = Date.now() - start;
+
     const cloned = res.clone();
     const text = await cloned.text().catch(() => '');
-    this.emitter?.networkResponse(res.status, shortUrl, duration, text.slice(0, 500));
+    this.emitter?.networkResponse(res.status, shortUrl, duration, truncate(text));
+
     return res;
   }
 
