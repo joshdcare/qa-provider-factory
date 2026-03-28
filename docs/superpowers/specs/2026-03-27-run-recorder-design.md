@@ -155,7 +155,7 @@ Creates the timestamped run directory (and `screenshots/` subdirectory for web) 
 
 ### Internal State
 
-The recorder holds a private `browserContext?: BrowserContext` reference, set by `startTrace()`. This is used by `finish()` to stop tracing and finalize video. Mobile runs never set this, so `finish()` skips tracing/video steps when it is `undefined`.
+The recorder holds private `browserContext?: BrowserContext` and `browser?: Browser` references, set by `startTrace()`. These are used by `finish()` to stop tracing, close the context and browser, and finalize video. Mobile runs never set these, so `finish()` skips tracing/video steps when `browserContext` is `undefined`.
 
 ### API
 
@@ -163,22 +163,22 @@ The recorder holds a private `browserContext?: BrowserContext` reference, set by
 |--------|---------|
 | `attach(emitter: RunEmitter)` | Subscribe to all emitter events. Captures step transitions and network events (including `body` fields). Pairs request/response by URL+order. |
 | `playwrightContextOptions()` | Returns `{ recordVideo: { dir: '<runDir>' } }` for Playwright `BrowserContext` creation. Web only. |
-| `startTrace(context: BrowserContext)` | Stores `context` internally, then calls `context.tracing.start({ screenshots: true, snapshots: true })`. Web only. |
+| `startTrace(context: BrowserContext, browser: Browser)` | Stores `context` and `browser` internally, then calls `context.tracing.start({ screenshots: true, snapshots: true })`. Web only. |
 | `screenshot(page: Page, stepName: string, index: number)` | Takes a full-page screenshot via `page.screenshot({ path, fullPage: true })`, saves to `screenshots/{index:02d}_{stepName}.png`. Wrapped in try/catch — failure logs a warning but does not abort the run. Web only. |
 | `recordError(step: string, err: Error)` | Stores the error with full stack trace for the `errors[]` array in `report.json`. Called from the pipeline's catch block. |
-| `finish(ctx: ReportContext)` | **Web:** stops tracing via `this.browserContext.tracing.stop({ path })`, resolves the video file (globs `<runDir>/*.webm`, renames first match to `video.webm`). **Both:** writes `report.json`, generates `report.html`, logs the run folder path to console. Idempotent — second call is a no-op. |
+| `finish(ctx: ReportContext)` | **Web:** stops tracing, closes context and browser (see shutdown sequence below; all browser operations wrapped in `try/catch` to tolerate an already-closed browser, e.g. when `!autoClose` and the user closed Chromium first), resolves the video file (globs `<runDir>/*.webm`, renames first match to `video.webm`). **Both:** writes `report.json`, generates `report.html`, logs the run folder path to console. Idempotent — second call is a no-op. |
 
 ### Web Shutdown Sequence (inside `finish()`)
 
-`finish()` owns the entire web shutdown sequence. Callers must **not** close the browser context before calling `finish()`. The order:
+`finish()` owns the entire web shutdown sequence. Callers must **not** close the browser context before calling `finish()`. All browser operations in `finish()` are wrapped in `try/catch` so an already-closed browser or context does not throw (e.g. `!autoClose` and the user closed Chromium first). The order:
 
 1. `this.browserContext.tracing.stop({ path: '<runDir>/trace.zip' })` — tracing must stop while context is still open
 2. `this.browserContext.close()` — triggers video finalization
-3. Glob `<runDir>/*.webm`, rename first match to `<runDir>/video.webm`
-4. If no `.webm` found, log a warning (don't fail)
+3. `this.browser.close()` — closes the Chromium process
+4. Glob `<runDir>/*.webm`, rename first match to `<runDir>/video.webm` (if no `.webm` found, log a warning; don't fail)
 5. Write `report.json` and `report.html`
 
-For mobile runs, steps 1-4 are skipped (no `browserContext`).
+For mobile runs, steps 1-4 are skipped (no `browserContext`); step 5 still runs.
 
 ### Lifecycle — Web Flow
 
@@ -189,12 +189,12 @@ recorder.attach(emitter);
 
 // Inside runWebEnrollmentFlow, recorder configures browser context:
 const context = await browser.newContext(recorder.playwrightContextOptions());
-await recorder.startTrace(context);  // stores context internally
+await recorder.startTrace(context, browser);  // stores context + browser internally
 
 // After each step completes inside the flow:
 await recorder.screenshot(page, stepName, stepIndex);
 
-// End — do NOT close context yourself. finish() handles tracing stop → context close → video.
+// End — do NOT close context or browser yourself. finish() handles tracing stop → context close → browser close → video.
 await recorder.finish({ email, password, memberId, vertical });
 ```
 
@@ -308,7 +308,7 @@ async function runWebFlow(opts, envConfig) {
   try {
     webResult = await runWebEnrollmentFlow(
       opts.step, opts.tier, envConfig, verticalConfig,
-      serviceType, opts.autoClose, emitter, recorder,
+      serviceType, opts.autoClose, emitter, undefined, recorder,
     );
   } catch (err) {
     recorder.recordError('web-flow', err as Error);
@@ -327,12 +327,19 @@ async function runWebFlow(opts, envConfig) {
 
 ### `web-flow.ts`
 
-- Accept `emitter?: RunEmitter` and `recorder?: RunRecorder` as new optional parameters
-- The existing `onStepComplete` callback parameter is removed. Its role (post-step hook) is replaced by `recorder?.screenshot()`. Any callers using `onStepComplete` should migrate to the recorder.
-- After each step completes, call `await recorder?.screenshot(page, stepName, index)`
+```typescript
+export async function runWebEnrollmentFlow(
+  ...,
+  emitter?: RunEmitter,
+  onStepComplete?: () => Promise<void>,
+  recorder?: RunRecorder,
+)
+```
+
+- Accept optional `emitter`, `onStepComplete`, and `recorder` after existing parameters. `onStepComplete` is retained for step-through mode (`app.tsx`). When a recorder is present, call `await recorder?.screenshot(page, stepName, index)` after each step; still invoke `onStepComplete` when provided so the UI can advance.
 - Configure browser context with `recorder?.playwrightContextOptions()` merged into existing options
-- Call `recorder?.startTrace(context)` after context creation
-- Close context before returning so video finalizes
+- Call `recorder?.startTrace(context, browser)` after context creation
+- Do not close context or browser in the flow; `recorder.finish()` owns shutdown so video finalizes
 - Map the returned `WebFlowResult` to `ReportContext` at the call site in `index.ts`:
   ```typescript
   const reportCtx: ReportContext = {
@@ -356,7 +363,7 @@ Add `runs/` to `jumper/.gitignore`.
 | `src/recorder/html-template.ts` | **New** — HTML report generation |
 | `src/recorder/truncate.ts` | **New** — shared truncation utility |
 | `src/api/client.ts` | **Modified** — pass request/response bodies through emitter using `truncate()` |
-| `src/steps/web-flow.ts` | **Modified** — accept emitter + recorder params, add screenshots + tracing |
+| `src/steps/web-flow.ts` | **Modified** — optional `emitter`, `onStepComplete`, `recorder`; screenshots + tracing |
 | `src/index.ts` | **Modified** — wire RunRecorder + RunEmitter into both mobile and web paths |
 | `.gitignore` | **Modified** — add `runs/` |
 
