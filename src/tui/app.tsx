@@ -75,7 +75,7 @@ async function runWebExecution(
           password: flowResult.password,
           memberId: flowResult.memberId,
           vertical: flowResult.vertical,
-        });
+        }, { keepBrowserOpen: !!monitoring });
 
         if (monitoring) {
           emitter.monitoringStart();

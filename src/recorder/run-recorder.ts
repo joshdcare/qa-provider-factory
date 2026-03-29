@@ -101,7 +101,7 @@ export class RunRecorder {
     }
   }
 
-  async finish(ctx: Record<string, any>): Promise<RunReport> {
+  async finish(ctx: Record<string, any>, { keepBrowserOpen = false } = {}): Promise<RunReport> {
     if (this.finished && this.cachedReport) {
       return this.cachedReport;
     }
@@ -112,12 +112,14 @@ export class RunRecorder {
       try {
         await this.browserContext.tracing.stop({ path: path.join(this.runDir, 'trace.zip') });
       } catch { /* browser already closed */ }
-      try {
-        await this.browserContext.close();
-      } catch { /* already closed */ }
-      try {
-        await this.browser!.close();
-      } catch { /* already closed */ }
+      if (!keepBrowserOpen) {
+        try {
+          await this.browserContext.close();
+        } catch { /* already closed */ }
+        try {
+          await this.browser!.close();
+        } catch { /* already closed */ }
+      }
       const webms = fs.readdirSync(this.runDir).filter(f => f.endsWith('.webm'));
       if (webms.length > 0) {
         fs.renameSync(path.join(this.runDir, webms[0]), path.join(this.runDir, 'video.webm'));

@@ -161,7 +161,7 @@ async function runWebFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[string
       password: webResult.password,
       memberId: webResult.memberId,
       vertical: webResult.vertical,
-    });
+    }, { keepBrowserOpen: !!monitoring });
     if (monitoring) {
       console.log('  Monitoring browser activity... Close the browser to exit.\n');
       await monitoring;
