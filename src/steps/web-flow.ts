@@ -16,6 +16,11 @@ export interface WebFlowResult {
   vertical?: string;
 }
 
+export interface WebFlowReturn {
+  result: WebFlowResult;
+  monitoring?: Promise<void>;
+}
+
 /**
  * Drives a visible Chromium browser through the web provider enrollment flow,
  * stopping at the target page and leaving the browser open for manual testing.
@@ -30,7 +35,7 @@ export async function runWebEnrollmentFlow(
   emitter?: RunEmitter,
   onStepComplete?: () => Promise<void>,
   recorder?: RunRecorder,
-): Promise<WebFlowResult> {
+): Promise<WebFlowReturn> {
   const email = `prov-${nanoid(6).toLowerCase()}@care.com`;
   const password = 'letmein1';
   let accountCreated = false;
@@ -80,7 +85,7 @@ export async function runWebEnrollmentFlow(
     });
   }
 
-  async function stop(stepName: string): Promise<WebFlowResult> {
+  async function stop(stepName: string): Promise<WebFlowReturn> {
     console.log(`\n✓ Browser stopped at: ${stepName}`);
     console.log(`  URL: ${page.url()}`);
     if (accountCreated) {
@@ -105,18 +110,22 @@ export async function runWebEnrollmentFlow(
       console.log(`    Email:      ${email}`);
       console.log(`    Password:   ${password}`);
     }
+
+    const flowResult: WebFlowResult = { email, password, accountCreated, memberId, uuid, vertical };
+
     if (autoClose) {
       if (!recorder) {
         console.log('\n  Auto-closing browser.\n');
         await browser.close();
       }
-    } else {
-      console.log('\n  Close the browser when you\'re done.\n');
-      await new Promise<void>(resolve => {
-        browser.once('disconnected', () => resolve());
-      });
+      return { result: flowResult };
     }
-    return { email, password, accountCreated, memberId, uuid, vertical };
+
+    console.log('\n  Browser open for manual interaction. Close it when done.\n');
+    const monitoring = new Promise<void>(resolve => {
+      browser.once('disconnected', () => resolve());
+    });
+    return { result: flowResult, monitoring };
   }
 
   let stepIndex = 0;
@@ -341,18 +350,23 @@ export async function runWebEnrollmentFlow(
       console.log(`  UUID:       ${uuid ?? '(not found)'}`);
       console.log(`  Vertical:   ${vertical}`);
     }
+
+    const flowResult: WebFlowResult = { email, password, accountCreated, memberId, uuid, vertical };
+
     if (autoClose) {
       console.log('\n  Auto-closing browser.\n');
       await browser.close();
-    } else {
-      console.log('\n  Browser left open for debugging. Close it when done.\n');
-      await new Promise<void>(resolve => {
-        browser.once('disconnected', () => resolve());
-      });
+      return { result: flowResult };
     }
+
+    console.log('\n  Browser left open for debugging. Close it when done.\n');
+    const monitoring = new Promise<void>(resolve => {
+      browser.once('disconnected', () => resolve());
+    });
+    return { result: flowResult, monitoring };
   }
 
-  return { email, password, accountCreated, memberId, uuid, vertical };
+  return { result: { email, password, accountCreated, memberId, uuid, vertical } };
 }
 
 /* ── Account info extraction ──────────────────────────────── */
