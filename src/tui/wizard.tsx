@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, useApp } from 'ink';
 import SelectInput from 'ink-select-input';
 import TextInput from 'ink-text-input';
-import type { Platform, Step, Tier, Vertical } from '../types.js';
-import { WEB_STEPS, MOBILE_STEPS, ALL_VERTICALS } from '../types.js';
+import type { Platform, Step, Tier, Vertical, Env } from '../types.js';
+import { WEB_STEPS, MOBILE_STEPS, ALL_VERTICALS, ALL_ENVS } from '../types.js';
 import { STEP_DESCRIPTIONS } from './step-descriptions.js';
 import { COLORS } from './theme.js';
+import { FlagBrowser } from './flag-browser.js';
 
 export interface WizardResult {
   platform: Platform;
@@ -14,7 +15,7 @@ export interface WizardResult {
   tier: Tier;
   count: number;
   autoClose: boolean;
-  env: string;
+  env: Env;
   executionMode: 'run-all' | 'step-through';
 }
 
@@ -27,25 +28,27 @@ interface EnvWarning {
   reason: string;
 }
 
-export function validateEnvVars(platform: Platform, step: Step): EnvWarning[] {
+export function validateEnvVars(platform: Platform, step: Step, env: Env): EnvWarning[] {
   const warnings: EnvWarning[] = [];
 
   if (platform === 'mobile' && !process.env.CZEN_API_KEY) {
     warnings.push({ var: 'CZEN_API_KEY', reason: 'Required for all mobile flows.' });
   }
 
-  if (platform === 'mobile' && step === 'fully-enrolled' && !process.env.MYSQL_DB_PASS_DEV) {
-    warnings.push({ var: 'MYSQL_DB_PASS_DEV', reason: 'Required for fully-enrolled (Sterling BGC callback).' });
+  const dbPassVar = env === 'stg' ? 'MYSQL_DB_PASS_STG' : 'MYSQL_DB_PASS_DEV';
+  if (platform === 'mobile' && step === 'fully-enrolled' && !process.env[dbPassVar]) {
+    warnings.push({ var: dbPassVar, reason: 'Required for fully-enrolled (Sterling BGC callback).' });
   }
 
   return warnings;
 }
 
-type WizardStage = 'platform' | 'vertical' | 'step' | 'tier' | 'options' | 'confirm';
+type WizardStage = 'env' | 'platform' | 'vertical' | 'step' | 'tier' | 'options' | 'confirm';
 
-const STAGES: WizardStage[] = ['platform', 'vertical', 'step', 'tier', 'options', 'confirm'];
+const STAGES: WizardStage[] = ['env', 'platform', 'vertical', 'step', 'tier', 'options', 'confirm'];
 
 const STAGE_LABELS: Record<WizardStage, string> = {
+  env: 'Environment',
   platform: 'Platform',
   vertical: 'Vertical',
   step: 'Step',
@@ -54,25 +57,36 @@ const STAGE_LABELS: Record<WizardStage, string> = {
   confirm: 'Confirm',
 };
 
+const ENV_LABELS: Record<Env, string> = {
+  dev: 'Dev (dev.carezen.net)',
+  stg: 'Staging (stg.carezen.net)',
+};
+
 interface WizardProps {
   onComplete: (result: WizardResult) => void;
 }
 
 export function Wizard({ onComplete }: WizardProps): React.ReactElement {
-  const [stage, setStage] = useState<WizardStage>('platform');
+  const { exit } = useApp();
+  const [stage, setStage] = useState<WizardStage>('env');
+  const [env, setEnv] = useState<Env>('dev');
   const [platform, setPlatform] = useState<Platform>('web');
   const [verticals, setVerticals] = useState<Vertical[]>(['childcare']);
   const [step, setStep] = useState<Step>('at-location');
   const [tier, setTier] = useState<Tier>('premium');
   const [count, setCount] = useState('1');
   const [autoClose] = useState(false);
-  const [env] = useState('dev');
   const [highlightedStep, setHighlightedStep] = useState<Step | null>(null);
+  const [showFlags, setShowFlags] = useState(false);
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
+    if (showFlags) return;
     if (key.escape) {
       const idx = STAGES.indexOf(stage);
       if (idx > 0) setStage(STAGES[idx - 1]);
+    }
+    if (input === 'q' && stage !== 'options') {
+      exit();
     }
   });
 
@@ -108,13 +122,27 @@ export function Wizard({ onComplete }: WizardProps): React.ReactElement {
       <Box borderStyle="single" borderColor={COLORS.chrome} paddingX={1}>
         <Text color={COLORS.dimText}>↑↓ select · enter: confirm · esc: back · q: quit</Text>
         <Box flexGrow={1} />
-        <Text color={COLORS.dimText}>Step {currentIdx + 1}/6</Text>
+        <Text color={COLORS.dimText}>Step {currentIdx + 1}/{STAGES.length}</Text>
       </Box>
     </Box>
   );
 
   function renderStage(): React.ReactElement {
     switch (stage) {
+      case 'env':
+        return (
+          <Box flexDirection="column">
+            <Text color={COLORS.stepRunning} bold>Which environment?</Text>
+            <Text color={COLORS.dimText}>Select the target environment for provider creation</Text>
+            <Box marginTop={1}>
+              <SelectInput
+                items={ALL_ENVS.map(e => ({ label: ENV_LABELS[e], value: e }))}
+                onSelect={(item) => { setEnv(item.value as Env); setStage('platform'); }}
+              />
+            </Box>
+          </Box>
+        );
+
       case 'platform':
         return (
           <Box flexDirection="column">
@@ -212,7 +240,7 @@ export function Wizard({ onComplete }: WizardProps): React.ReactElement {
         );
 
       case 'confirm': {
-        const warnings = validateEnvVars(platform, step);
+        const warnings = validateEnvVars(platform, step, env);
         const parsedCount = parseInt(count, 10);
         const countValid = !isNaN(parsedCount) && parsedCount >= 1 && parsedCount <= 50;
         return (
@@ -239,27 +267,36 @@ export function Wizard({ onComplete }: WizardProps): React.ReactElement {
                 <Text color={COLORS.stepError}>⚠ Count must be 1-50. Go back to fix.</Text>
               </Box>
             )}
-            <Box marginTop={1}>
-              <SelectInput
-                items={[
-                  { label: 'Run all steps automatically', value: 'run-all' },
-                  { label: 'Step through one at a time', value: 'step-through' },
-                  { label: '← Go back and edit', value: 'back' },
-                ]}
-                onSelect={(item) => {
-                  if (item.value === 'back') {
-                    setStage('platform');
-                  } else if (countValid && warnings.length === 0) {
-                    onComplete({
-                      platform, verticals, step, tier, env,
-                      count: parsedCount,
-                      autoClose,
-                      executionMode: item.value as 'run-all' | 'step-through',
-                    });
-                  }
-                }}
-              />
-            </Box>
+            {showFlags ? (
+              <Box marginTop={1}>
+                <FlagBrowser env={env} onClose={() => setShowFlags(false)} />
+              </Box>
+            ) : (
+              <Box marginTop={1}>
+                <SelectInput
+                  items={[
+                    { label: 'Run all steps automatically', value: 'run-all' },
+                    { label: 'Step through one at a time', value: 'step-through' },
+                    { label: 'Manage feature flags', value: 'flags' },
+                    { label: '← Go back and edit', value: 'back' },
+                  ]}
+                  onSelect={(item) => {
+                    if (item.value === 'back') {
+                      setStage('platform');
+                    } else if (item.value === 'flags') {
+                      setShowFlags(true);
+                    } else if (countValid && warnings.length === 0) {
+                      onComplete({
+                        platform, verticals, step, tier, env,
+                        count: parsedCount,
+                        autoClose,
+                        executionMode: item.value as 'run-all' | 'step-through',
+                      });
+                    }
+                  }}
+                />
+              </Box>
+            )}
           </Box>
         );
       }

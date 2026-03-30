@@ -2,8 +2,8 @@
 import 'dotenv/config';
 import { Command, CommanderError } from 'commander';
 import ora from 'ora';
-import { ALL_STEPS, WEB_STEPS, MOBILE_STEPS, ENV_CONFIGS } from './types.js';
-import type { Step, Tier, Vertical, Platform, CliOptions, ProviderContext } from './types.js';
+import { ALL_STEPS, WEB_STEPS, MOBILE_STEPS, ALL_ENVS, ENV_CONFIGS } from './types.js';
+import type { Step, Tier, Vertical, Platform, Env, CliOptions, ProviderContext, EnvConfig } from './types.js';
 import { ApiClient } from './api/client.js';
 import { getAccessToken } from './api/auth.js';
 import { getStepsUpTo } from './steps/registry.js';
@@ -44,7 +44,17 @@ function createEnrollmentCommand(): Command {
       'childcare'
     )
     .option('--platform <platform>', 'Target platform (web, mobile)', 'web')
-    .option('--env <env>', 'Target environment', 'dev')
+    .option(
+      '--env <env>',
+      `Target environment (${ALL_ENVS.join(', ')})`,
+      (value: string) => {
+        if (!ALL_ENVS.includes(value as Env)) {
+          throw new Error(`Invalid env "${value}". Valid: ${ALL_ENVS.join(', ')}`);
+        }
+        return value as Env;
+      },
+      'dev'
+    )
     .option('--auto-close', 'Close browser automatically after completion (web only)')
     .addHelpText('after', `
 Steps by platform:
@@ -74,6 +84,21 @@ function createRootProgram(): Command {
       const React = await import('react');
       const { App } = await import('./tui/app.js');
       render(React.createElement(App));
+    });
+  program
+    .command('flags')
+    .description('Browse and toggle LaunchDarkly feature flags')
+    .option('--env <env>', `Target environment (${ALL_ENVS.join(', ')})`, 'dev')
+    .action(async (opts: { env: string }) => {
+      const envVal = opts.env as Env;
+      if (!ALL_ENVS.includes(envVal)) {
+        console.error(`Invalid env "${opts.env}". Valid: ${ALL_ENVS.join(', ')}`);
+        process.exit(1);
+      }
+      const { render } = await import('ink');
+      const React = await import('react');
+      const { FlagBrowser } = await import('./tui/flag-browser.js');
+      render(React.createElement(FlagBrowser, { env: envVal }));
     });
   program.addCommand(createEnrollmentCommand(), { isDefault: true, hidden: true });
   return program;
@@ -131,7 +156,7 @@ function registerShutdownHandlers(recorder: RunRecorder): void {
   process.once('SIGTERM', handler);
 }
 
-async function runWebFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[string]): Promise<void> {
+async function runWebFlow(opts: CliOptions, envConfig: EnvConfig): Promise<void> {
   const { runWebEnrollmentFlow } = await import('./steps/web-flow.js');
   const emitter = new RunEmitter();
   consoleAdapter(emitter);
@@ -180,7 +205,7 @@ async function runWebFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[string
   if (!webResult) process.exit(1);
 }
 
-async function runMobileFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[string]): Promise<void> {
+async function runMobileFlow(opts: CliOptions, envConfig: EnvConfig): Promise<void> {
   const emitter = new RunEmitter();
   consoleAdapter(emitter);
   const recorder = new RunRecorder({
@@ -214,7 +239,7 @@ async function runMobileFlow(opts: CliOptions, envConfig: typeof ENV_CONFIGS[str
     for (const step of steps) {
       if (step.name !== 'account-created' && !ctx.accessToken) {
         const authSpinner = ora('Acquiring access token…').start();
-        ctx.accessToken = await getAccessToken(ctx.email, envConfig.baseUrl);
+        ctx.accessToken = await getAccessToken(ctx.email, envConfig);
         client.setAccessToken(ctx.accessToken);
         authSpinner.succeed('Access token acquired');
       }
@@ -297,7 +322,7 @@ if (isMainModule) {
     console.log(BANNER);
     console.log('  Run `jumper start` for guided mode.\n');
   }
-  if (argv[0] === 'start') {
+  if (argv[0] === 'start' || argv[0] === 'flags') {
     runInteractiveCli(argv).catch((err) => {
       if (err instanceof CommanderError) {
         process.exit(err.exitCode);

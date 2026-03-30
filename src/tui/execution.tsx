@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
 import type { RunEmitter, RunEvent } from './emitter.js';
-import type { Step, Platform, Tier, Vertical } from '../types.js';
+import type { Step, Platform, Tier, Vertical, Env } from '../types.js';
 import { LogPanel, type LogEntry } from './log-panel.js';
 import { STEP_DESCRIPTIONS } from './step-descriptions.js';
 import { COLORS } from './theme.js';
+import { FlagBrowser } from './flag-browser.js';
 
 type StepStatus = 'pending' | 'running' | 'complete' | 'error';
 
@@ -45,7 +46,7 @@ interface ExecutionProps {
   platform: Platform;
   verticals: Vertical[];
   tier: Tier;
-  env: string;
+  env: Env;
   executionMode: 'run-all' | 'step-through';
   onStepContinue: () => void;
   onRetry: () => void;
@@ -76,6 +77,7 @@ export function Execution({
   const [recentLines, setRecentLines] = useState<string[]>([]);
   const [menuIndex, setMenuIndex] = useState(0);
   const [startTime] = useState(Date.now());
+  const [showFlags, setShowFlags] = useState(false);
 
   const spinnerChar = useSpinner(!done && !waiting && !logsExpanded);
 
@@ -146,6 +148,14 @@ export function Execution({
   const menuItems = ['Create another (same settings)', 'New configuration', 'Quit'] as const;
 
   useInput((input, key) => {
+    if (showFlags) {
+      if (key.escape || input === 'f') setShowFlags(false);
+      return;
+    }
+    if (input === 'f' && !done) {
+      setShowFlags(true);
+      return;
+    }
     if (done) {
       if (!logsExpanded) {
         if (key.upArrow) setMenuIndex(prev => Math.max(0, prev - 1));
@@ -355,6 +365,12 @@ export function Execution({
         </Box>
       </Box>
 
+      {showFlags && (
+        <Box borderStyle="single" borderColor={COLORS.chrome}>
+          <FlagBrowser env={env} onClose={() => setShowFlags(false)} />
+        </Box>
+      )}
+
       {/* Bottom bar */}
       <Box borderStyle="single" borderColor={COLORS.chrome} paddingX={1}>
         {done ? (
@@ -375,7 +391,7 @@ export function Execution({
           </Text>
         ) : (
           <Text color={COLORS.dimText}>
-            tab: browse steps · a: all · l: {logsExpanded ? 'hide' : 'show'} logs{logsExpanded ? ' · d: detail · f: filter' : ''} · q: quit
+            tab: browse steps · a: all · l: {logsExpanded ? 'hide' : 'show'} logs{logsExpanded ? ' · d: detail' : ''} · f: flags · q: quit
           </Text>
         )}
         <Text color={COLORS.dimText}> · {completedCount}/{steps.length} · {elapsedStr}</Text>
