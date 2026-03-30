@@ -60,8 +60,12 @@ After linking, the `jumper` command is available globally in your terminal.
 
 | Variable | Required for | How to get it |
 |----------|-------------|---------------|
-| `CZEN_API_KEY` | Mobile steps, web steps past account creation | Ask a team lead or check the QA vault |
-| `MYSQL_DB_PASS_DEV` | Mobile `fully-enrolled`; optional for UUID lookup on other steps | Ask a team lead or check the QA vault |
+| `CZEN_API_KEY` | Dev mobile steps, web steps past account creation | Ask a team lead or check the QA vault |
+| `CZEN_API_KEY_STG` | Staging mobile/web steps | Ask a team lead or check the QA vault |
+| `MYSQL_DB_PASS_DEV` | Dev `fully-enrolled` (Sterling BGC callback) | Ask a team lead or check the QA vault |
+| `MYSQL_DB_PASS_STG` | Staging `fully-enrolled` (Sterling BGC callback) | Ask a team lead or check the QA vault |
+| `LD_API_TOKEN` | LaunchDarkly flag toggling (optional) | LaunchDarkly → Account settings → API access tokens |
+| `LD_PROJECT_KEY` | LaunchDarkly flag toggling (optional) | LaunchDarkly → Projects → your project key |
 
 ### Network access
 
@@ -77,39 +81,28 @@ The easiest way to use Jumper. A guided wizard walks you through configuration, 
 jumper start
 ```
 
+<p align="center">
+  <img src="docs/demo.gif" alt="Jumper TUI demo — wizard and execution screen" width="800" />
+</p>
+
 ### Wizard
 
-The wizard walks through six screens:
+The wizard walks through up to eight screens:
 
-1. **Platform** — Web or Mobile
-2. **Vertical** — Child Care, Senior Care, Pet Care, Housekeeping, or Tutoring
-3. **Step** — The enrollment checkpoint to stop at (platform-specific list with descriptions)
-4. **Tier** — Basic or Premium
-5. **Options** — Count (how many providers to create) and execution mode (Run All or Step Through)
-6. **Confirm** — Review your selections and launch
+1. **Environment** — Dev or Staging
+2. **Platform** — Web or Mobile
+3. **Vertical** — Child Care, Senior Care, Pet Care, Housekeeping, or Tutoring
+4. **Step** — The enrollment checkpoint to stop at (platform-specific list with descriptions)
+5. **Feature Flags** — Optionally toggle LaunchDarkly flags for the session (changes revert on exit)
+6. **Tier** — Basic or Premium (only shown for steps that require payment)
+7. **Options** — Count (how many providers to create) and execution mode (Run All or Step Through)
+8. **Confirm** — Review selections, see any toggled flags, and launch
 
 Environment variable warnings are shown if your `.env` is missing keys required for the selected flow.
 
 ### Execution screen
 
 Once the wizard completes, the execution screen takes over:
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│ ██ JUMPER                                  web · childcare   │
-├────────────┬─────────────────────────────────────────────────┤
-│ STEPS      │ at-location                                     │
-│ ✓ get-str  │ Enter your ZIP code                             │
-│ ✓ soft-int │                                                 │
-│ ▸ location │ ▸ Logs: at-location (12) — press l to expand    │
-│ ○ prefs    │                                                 │
-│            │                                                 │
-│ CONTEXT    │                                                 │
-│ email: ... │                                                 │
-├────────────┴─────────────────────────────────────────────────┤
-│ ● dev     tab: browse steps · l: show logs · q: quit        │
-└──────────────────────────────────────────────────────────────┘
-```
 
 **Left panel** — Step list with status icons (`○` pending, `▸` running, `✓` complete, `✗` error) and per-step log counts. Below the steps, a context section shows extracted values (email, memberId, UUID) as they become available.
 
@@ -359,9 +352,10 @@ jumper/
 │   ├── types.ts                  # Types, step lists, env config
 │   ├── verticals.ts              # Vertical registry (service IDs, web selectors)
 │   ├── api/
-│   │   ├── auth.ts               # Auth0 PKCE token flow (Playwright headless)
+│   │   ├── auth.ts               # Cookie-based auth via headless browser login
 │   │   ├── client.ts             # HTTP client — GraphQL, REST JSON, SPI, multipart
-│   │   └── graphql.ts            # All GraphQL queries and mutations
+│   │   ├── graphql.ts            # All GraphQL queries and mutations
+│   │   └── launchdarkly.ts       # LaunchDarkly REST API client (search + toggle flags)
 │   ├── payloads/
 │   │   ├── childcare.ts          # Child Care payloads
 │   │   ├── seniorcare.ts         # Senior Care payloads
@@ -385,10 +379,12 @@ jumper/
 │   │   └── photo.ts              # Programmatic profile photo generation + upload
 │   └── tui/
 │       ├── app.tsx               # Root TUI component + state machine
-│       ├── wizard.tsx            # Configuration wizard (6-stage)
+│       ├── wizard.tsx            # Configuration wizard (8-stage)
 │       ├── execution.tsx         # Execution screen with step list + log drawer
 │       ├── log-panel.tsx         # Scrollable, filterable log renderer
 │       ├── emitter.ts            # RunEmitter event system
+│       ├── flag-browser.tsx      # LaunchDarkly flag search + toggle component
+│       ├── flag-session.ts       # Session-scoped flag toggle tracking + revert
 │       ├── results-table.tsx     # Batch results table
 │       ├── step-descriptions.ts  # Human-readable step descriptions
 │       └── theme.ts              # TUI color constants
@@ -402,7 +398,9 @@ jumper/
 │       ├── html-template.test.ts # HTML report generation tests
 │       └── truncate.test.ts      # Truncation utility tests
 ├── runs/                         # Generated run artifacts (git-ignored)
+├── demo.tape                     # VHS tape for recording the demo GIF
 └── docs/
+    ├── demo.gif                  # TUI demo recording
     ├── specs/                    # Design specs
     └── plans/                    # Implementation plans
 ```
