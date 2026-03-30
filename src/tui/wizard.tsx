@@ -42,6 +42,11 @@ export function validateEnvVars(platform: Platform, step: Step, env: Env): EnvWa
     warnings.push({ var: dbPassVar, reason: 'Required for fully-enrolled (Sterling BGC callback).' });
   }
 
+  const paymentSteps: Step[] = ['at-basic-payment', 'at-premium-payment', 'at-app-download'];
+  if (platform === 'web' && paymentSteps.includes(step) && !process.env.STRIPE_KEY) {
+    warnings.push({ var: 'STRIPE_KEY', reason: 'Required for web payment steps.' });
+  }
+
   return warnings;
 }
 
