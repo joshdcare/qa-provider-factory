@@ -2,10 +2,18 @@ import { LD_ENV_MAP, type Env } from '../types.js';
 
 const LD_API_BASE = 'https://app.launchdarkly.com/api/v2';
 
+export interface LDVariation {
+  id: string;
+  name?: string;
+  value: unknown;
+}
+
 export interface LDFlag {
   key: string;
   name: string;
   on: boolean;
+  variations: LDVariation[];
+  fallthroughVariationId: string | null;
 }
 
 type FetchImpl = typeof fetch;
@@ -31,12 +39,27 @@ function mapItemToFlag(
   item: {
     key: string;
     name: string;
-    environments?: Record<string, { on?: boolean }>;
+    variations?: Array<{ _id: string; name?: string; value: unknown }>;
+    environments?: Record<string, { on?: boolean; fallthrough?: { variation?: number; rollout?: unknown } }>;
   },
   envKey: string
 ): LDFlag {
-  const on = item.environments?.[envKey]?.on ?? false;
-  return { key: item.key, name: item.name, on };
+  const envData = item.environments?.[envKey];
+  const on = envData?.on ?? false;
+
+  const variations: LDVariation[] = (item.variations ?? []).map(v => ({
+    id: v._id,
+    name: v.name,
+    value: v.value,
+  }));
+
+  let fallthroughVariationId: string | null = null;
+  const ft = envData?.fallthrough;
+  if (ft && typeof ft.variation === 'number' && variations[ft.variation]) {
+    fallthroughVariationId = variations[ft.variation].id;
+  }
+
+  return { key: item.key, name: item.name, on, variations, fallthroughVariationId };
 }
 
 export class LDClient {
@@ -75,7 +98,8 @@ export class LDClient {
         item as {
           key: string;
           name: string;
-          environments?: Record<string, { on?: boolean }>;
+          variations?: Array<{ _id: string; name?: string; value: unknown }>;
+          environments?: Record<string, { on?: boolean; fallthrough?: { variation?: number; rollout?: unknown } }>;
         },
         envKey
       )
@@ -111,7 +135,8 @@ export class LDClient {
     const item = (await res.json()) as {
       key: string;
       name: string;
-      environments?: Record<string, { on?: boolean }>;
+      variations?: Array<{ _id: string; name?: string; value: unknown }>;
+      environments?: Record<string, { on?: boolean; fallthrough?: { variation?: number; rollout?: unknown } }>;
     };
     return mapItemToFlag(item, envKey);
   }

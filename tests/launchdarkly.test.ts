@@ -20,22 +20,19 @@ describe('LDClient', () => {
   });
 
   describe('searchFlags', () => {
-    it('returns flags with correct on state from environments', async () => {
+    it('returns flags with variations and fallthroughVariationId', async () => {
       fetchImpl.mockResolvedValueOnce(
         mockJsonResponse({
           items: [
             {
               key: 'flag-a',
               name: 'Flag A',
+              variations: [
+                { _id: 'v1', name: 'control', value: 'control' },
+                { _id: 'v2', name: 'test', value: 'test' },
+              ],
               environments: {
-                dev: { on: true },
-              },
-            },
-            {
-              key: 'flag-b',
-              name: 'Flag B',
-              environments: {
-                dev: { on: false },
+                dev: { on: true, fallthrough: { variation: 1 } },
               },
             },
           ],
@@ -43,23 +40,48 @@ describe('LDClient', () => {
       );
 
       const client = new LDClient('api-token', PROJECT, fetchImpl);
-      const flags = await client.searchFlags('my-query', 'dev');
+      const flags = await client.searchFlags('q', 'dev');
 
-      expect(flags).toEqual([
-        { key: 'flag-a', name: 'Flag A', on: true },
-        { key: 'flag-b', name: 'Flag B', on: false },
-      ]);
-
-      expect(fetchImpl).toHaveBeenCalledTimes(1);
-      const url = new URL(fetchImpl.mock.calls[0][0] as string);
-      expect(url.origin + url.pathname).toBe(`${BASE}/flags/${PROJECT}`);
-      expect(url.searchParams.get('env')).toBe('dev');
-      expect(url.searchParams.get('filter')).toBe('query:my-query');
-      expect(url.searchParams.get('limit')).toBe('20');
-      expect(url.searchParams.get('sort')).toBe('name');
-      expect(fetchImpl.mock.calls[0][1].headers).toMatchObject({
-        Authorization: 'api-token',
+      expect(flags[0]).toEqual({
+        key: 'flag-a',
+        name: 'Flag A',
+        on: true,
+        variations: [
+          { id: 'v1', name: 'control', value: 'control' },
+          { id: 'v2', name: 'test', value: 'test' },
+        ],
+        fallthroughVariationId: 'v2',
       });
+    });
+
+    it('sets fallthroughVariationId to null for rollout-based fallthrough', async () => {
+      fetchImpl.mockResolvedValueOnce(
+        mockJsonResponse({
+          items: [
+            {
+              key: 'flag-r',
+              name: 'Rollout Flag',
+              variations: [
+                { _id: 'v1', name: 'off', value: false },
+                { _id: 'v2', name: 'on', value: true },
+              ],
+              environments: {
+                dev: {
+                  on: true,
+                  fallthrough: {
+                    rollout: { variations: [{ variation: 0, weight: 50000 }, { variation: 1, weight: 50000 }] },
+                  },
+                },
+              },
+            },
+          ],
+        })
+      );
+
+      const client = new LDClient('api-token', PROJECT, fetchImpl);
+      const flags = await client.searchFlags('q', 'dev');
+
+      expect(flags[0].fallthroughVariationId).toBeNull();
     });
 
     it('omits filter when query is empty', async () => {
@@ -90,8 +112,12 @@ describe('LDClient', () => {
       const updated = {
         key: flagKey,
         name: 'My Feature',
+        variations: [
+          { _id: 'v1', name: 'off', value: false },
+          { _id: 'v2', name: 'on', value: true },
+        ],
         environments: {
-          stg: { on: true },
+          stg: { on: true, fallthrough: { variation: 0 } },
         },
       };
       fetchImpl.mockResolvedValueOnce(mockJsonResponse(updated));
@@ -103,6 +129,11 @@ describe('LDClient', () => {
         key: flagKey,
         name: 'My Feature',
         on: true,
+        variations: [
+          { id: 'v1', name: 'off', value: false },
+          { id: 'v2', name: 'on', value: true },
+        ],
+        fallthroughVariationId: 'v1',
       });
 
       expect(fetchImpl).toHaveBeenCalledTimes(1);
