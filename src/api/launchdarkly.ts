@@ -141,4 +141,39 @@ export class LDClient {
     return mapItemToFlag(item, envKey);
   }
 
+  async setFallthroughVariation(
+    flagKey: string,
+    ldEnv: string,
+    variationId: string,
+    fetchImpl: FetchImpl = this.defaultFetch
+  ): Promise<LDFlag> {
+    if (!(ldEnv in LD_ENV_MAP)) {
+      throw new Error('Toggling in that environment is not allowed');
+    }
+    const envKey = LD_ENV_MAP[ldEnv as Env];
+    const url = `${LD_API_BASE}/flags/${encodeURIComponent(this.projectKey)}/${encodeURIComponent(flagKey)}`;
+    const body = JSON.stringify({
+      environmentKey: envKey,
+      instructions: [{ kind: 'updateFallthroughVariationOrRollout', variationId }],
+    });
+
+    const res = await fetchImpl(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: this.token,
+        'Content-Type': 'application/json; domain-model=launchdarkly.semanticpatch',
+      },
+      body,
+    });
+
+    await throwIfNotOk(res);
+    const item = (await res.json()) as {
+      key: string;
+      name: string;
+      variations?: Array<{ _id: string; name?: string; value: unknown }>;
+      environments?: Record<string, { on?: boolean; fallthrough?: { variation?: number; rollout?: unknown } }>;
+    };
+    return mapItemToFlag(item, envKey);
+  }
+
 }

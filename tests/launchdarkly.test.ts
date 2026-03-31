@@ -172,4 +172,45 @@ describe('LDClient', () => {
     });
   });
 
+  describe('setFallthroughVariation', () => {
+    it('sends correct semantic patch and returns updated flag', async () => {
+      const updated = {
+        key: 'my-flag',
+        name: 'My Flag',
+        variations: [
+          { _id: 'v1', name: 'control', value: 'control' },
+          { _id: 'v2', name: 'test', value: 'test' },
+        ],
+        environments: {
+          dev: { on: true, fallthrough: { variation: 1 } },
+        },
+      };
+      fetchImpl.mockResolvedValueOnce(mockJsonResponse(updated));
+
+      const client = new LDClient('api-token', PROJECT, fetchImpl);
+      const result = await client.setFallthroughVariation('my-flag', 'dev', 'v2');
+
+      expect(result.fallthroughVariationId).toBe('v2');
+
+      const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`${BASE}/flags/${PROJECT}/my-flag`);
+      expect(init.method).toBe('PATCH');
+      expect(init.headers).toMatchObject({
+        'Content-Type': 'application/json; domain-model=launchdarkly.semanticpatch',
+      });
+      expect(JSON.parse(init.body as string)).toEqual({
+        environmentKey: 'dev',
+        instructions: [{ kind: 'updateFallthroughVariationOrRollout', variationId: 'v2' }],
+      });
+    });
+
+    it('rejects unknown environment', async () => {
+      const client = new LDClient('api-token', PROJECT, fetchImpl);
+      await expect(
+        client.setFallthroughVariation('flag', 'prod' as never, 'v1')
+      ).rejects.toThrow(/not allowed/i);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+  });
+
 });
