@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
-import { LDClient, type LDFlag } from '../api/launchdarkly.js';
+import { LDClient, type LDFlag, type LDVariation } from '../api/launchdarkly.js';
 import type { Env } from '../types.js';
 import { COLORS } from './theme.js';
 import { recordSnapshot, getSessionToggleCount } from './flag-session.js';
@@ -20,6 +20,13 @@ function getLdConfig(): { ok: true; token: string; projectKey: string } | { ok: 
     return { ok: false, missing };
   }
   return { ok: true, token, projectKey };
+}
+
+function variationDisplayName(v: LDVariation, index: number): string {
+  if (v.name) return v.name;
+  const valStr = JSON.stringify(v.value);
+  if (valStr.length <= 40) return valStr;
+  return `Variation ${index}`;
 }
 
 const NAME_COL_WIDTH = 36;
@@ -45,6 +52,10 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
   const [togglingKey, setTogglingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toggledKey, setToggledKey] = useState<string | null>(null);
+  const [view, setView] = useState<'list' | 'detail'>('list');
+  const [detailFlag, setDetailFlag] = useState<LDFlag | null>(null);
+  const [variationIndex, setVariationIndex] = useState(0);
+  const [settingVariation, setSettingVariation] = useState(false);
 
   const searchSeq = useRef(0);
   const toggledTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,85 +91,126 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
     void loadFlags();
   }, [client, debouncedQuery, env, loadFlags]);
 
+  const activeFlag = view === 'detail' ? detailFlag : (flags[selectedIndex] ?? null);
+
   const handleToggle = useCallback(async () => {
-    if (!client || flags.length === 0 || togglingKey) return;
-    const flag = flags[selectedIndex];
-    if (!flag) return;
-    setTogglingKey(flag.key);
+    if (!client || !activeFlag || togglingKey) return;
+    setTogglingKey(activeFlag.key);
     setError(null);
     try {
-      const ftVar = flag.variations.find(v => v.id === flag.fallthroughVariationId);
-      const ftVariationName = ftVar?.name ?? null;
-      recordSnapshot(flag.key, flag.on, flag.fallthroughVariationId, env, ftVariationName);
-      const newState = !flag.on;
-      await client.toggleFlag(flag.key, env, newState);
+      const origFtVar = activeFlag.variations.find(v => v.id === activeFlag.fallthroughVariationId);
+      recordSnapshot(activeFlag.key, activeFlag.on, activeFlag.fallthroughVariationId, env, origFtVar?.name ?? null);
+      const newState = !activeFlag.on;
+      await client.toggleFlag(activeFlag.key, env, newState);
       setTogglingKey(null);
-      setToggledKey(flag.key);
+      setToggledKey(activeFlag.key);
       if (toggledTimeoutRef.current) clearTimeout(toggledTimeoutRef.current);
       toggledTimeoutRef.current = setTimeout(() => {
         setToggledKey(null);
         toggledTimeoutRef.current = null;
       }, 2000);
       await loadFlags();
+      if (view === 'detail') {
+        setDetailFlag(prev => prev ? { ...prev, on: newState } : prev);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setTogglingKey(null);
     }
-  }, [client, env, flags, loadFlags, selectedIndex, togglingKey]);
+  }, [client, env, activeFlag, loadFlags, togglingKey, view]);
+
+  const handleSetVariation = useCallback(async () => {
+    if (!client || !detailFlag || settingVariation) return;
+    const variation = detailFlag.variations[variationIndex];
+    if (!variation || variation.id === detailFlag.fallthroughVariationId) return;
+    setSettingVariation(true);
+    setError(null);
+    try {
+      const origFtVar = detailFlag.variations.find(v => v.id === detailFlag.fallthroughVariationId);
+      recordSnapshot(detailFlag.key, detailFlag.on, detailFlag.fallthroughVariationId, env, origFtVar?.name ?? null);
+      await client.setFallthroughVariation(detailFlag.key, env, variation.id);
+      setToggledKey(detailFlag.key);
+      if (toggledTimeoutRef.current) clearTimeout(toggledTimeoutRef.current);
+      toggledTimeoutRef.current = setTimeout(() => {
+        setToggledKey(null);
+        toggledTimeoutRef.current = null;
+      }, 2000);
+      await loadFlags();
+      setDetailFlag(prev => {
+        if (!prev) return prev;
+        return { ...prev, fallthroughVariationId: variation.id };
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSettingVariation(false);
+    }
+  }, [client, env, detailFlag, variationIndex, loadFlags, settingVariation]);
 
   useInput((input, key) => {
     if (!config.ok) {
-      if (key.escape) {
-        if (onClose) onClose();
-        else exit();
-      }
+      if (key.escape) { if (onClose) onClose(); else exit(); }
       if (input === 'q' && onClose === undefined) exit();
       return;
     }
 
-    if (key.escape) {
-      if (onClose) onClose();
-      else exit();
+    if (view === 'detail' && detailFlag) {
+      if (key.escape) {
+        setView('list');
+        setDetailFlag(null);
+        void loadFlags();
+        return;
+      }
+      if (key.upArrow) {
+        setVariationIndex(i => Math.max(0, i - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setVariationIndex(i => Math.min(detailFlag.variations.length - 1, i + 1));
+        return;
+      }
+      if (key.return) {
+        if (detailFlag.fallthroughVariationId !== null) void handleSetVariation();
+        return;
+      }
+      if (input === 't') {
+        void handleToggle();
+        return;
+      }
       return;
     }
 
-    if (input === 'q' && onClose === undefined) {
-      exit();
-      return;
-    }
-
-    if (key.upArrow) {
-      setSelectedIndex(i => (flags.length === 0 ? 0 : Math.max(0, i - 1)));
-      return;
-    }
-    if (key.downArrow) {
-      setSelectedIndex(i => (flags.length === 0 ? 0 : Math.min(flags.length - 1, i + 1)));
-      return;
-    }
+    if (key.escape) { if (onClose) onClose(); else exit(); return; }
+    if (input === 'q' && onClose === undefined) { exit(); return; }
+    if (key.upArrow) { setSelectedIndex(i => Math.max(0, i - 1)); return; }
+    if (key.downArrow) { setSelectedIndex(i => Math.min(flags.length - 1, i + 1)); return; }
 
     if (key.return) {
-      if (flags.length > 0) void handleToggle();
+      if (flags.length > 0) {
+        const flag = flags[selectedIndex];
+        setDetailFlag(flag);
+        const ftIdx = flag.variations.findIndex(v => v.id === flag.fallthroughVariationId);
+        setVariationIndex(ftIdx >= 0 ? ftIdx : 0);
+        setView('detail');
+      }
       return;
     }
 
-    if (key.backspace || key.delete) {
-      setQuery(q => q.slice(0, -1));
-      return;
-    }
-
-    if (input && !key.ctrl && !key.meta && input.length === 1) {
-      setQuery(q => q + input);
-    }
+    if (key.backspace || key.delete) { setQuery(q => q.slice(0, -1)); return; }
+    if (input && !key.ctrl && !key.meta && input.length === 1) { setQuery(q => q + input); }
   });
 
   useEffect(() => () => {
     if (toggledTimeoutRef.current) clearTimeout(toggledTimeoutRef.current);
   }, []);
 
-  const footer =
-    onClose === undefined
-      ? '↑↓ select · enter: toggle · esc: close · q: quit'
-      : '↑↓ select · enter: toggle · esc: close';
+  const listFooter = onClose === undefined
+    ? '↑↓ select · enter: details · esc: close · q: quit'
+    : '↑↓ select · enter: details · esc: close';
+
+  const detailFooter = '↑↓ select · enter: set variation · t: toggle on/off · esc: back';
+
+  const footer = view === 'detail' ? detailFooter : listFooter;
 
   if (!config.ok) {
     return (
@@ -191,52 +243,107 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
       </Box>
 
       <Box flexGrow={1} flexDirection="column" borderStyle="single" borderColor={COLORS.chrome} paddingX={1}>
-        <Box>
-          <Text color={COLORS.dimText}>Search: </Text>
-          <Text color={COLORS.contextValue}>{query}</Text>
-          <Text color={COLORS.contextValue}>█</Text>
-        </Box>
+        {view === 'list' && (
+          <>
+            <Box>
+              <Text color={COLORS.dimText}>Search: </Text>
+              <Text color={COLORS.contextValue}>{query}</Text>
+              <Text color={COLORS.contextValue}>█</Text>
+            </Box>
 
-        {error && (
-          <Box marginTop={1}>
-            <Text color={COLORS.stepError}>{error}</Text>
-          </Box>
+            {error && (
+              <Box marginTop={1}>
+                <Text color={COLORS.stepError}>{error}</Text>
+              </Box>
+            )}
+
+            <Box marginTop={1} flexDirection="column">
+              {loading && flags.length === 0 && (
+                <Text color={COLORS.stepRunning}>Loading…</Text>
+              )}
+              {loading && flags.length > 0 && (
+                <Text color={COLORS.dimText}>Refreshing…</Text>
+              )}
+              {flags.map((f, i) => {
+                const selected = i === selectedIndex;
+                const prefix = selected ? '▸' : ' ';
+                const stateDot = f.on ? '●' : '○';
+                const isBusy = togglingKey === f.key;
+                const stateLabel = isBusy ? '...' : f.on ? 'ON' : 'OFF';
+                const stateColor = isBusy ? COLORS.stepRunning : f.on ? COLORS.stepComplete : COLORS.dimText;
+                const showToggled = toggledKey === f.key && !isBusy;
+                const ftVariation = f.variations.find(v => v.id === f.fallthroughVariationId);
+                const ftLabel = ftVariation ? variationDisplayName(ftVariation, f.variations.indexOf(ftVariation)) : '';
+                return (
+                  <Box key={f.key}>
+                    <Text color={selected ? COLORS.stepRunning : COLORS.dimText}>
+                      {prefix} {stateDot} {padName(f.key)}
+                    </Text>
+                    <Text color={stateColor}> {stateLabel}</Text>
+                    {ftLabel && <Text color={COLORS.dimText}> [{ftLabel}]</Text>}
+                    {showToggled && (
+                      <Text color={COLORS.stepComplete}>  Toggled</Text>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
+
+            {getSessionToggleCount() > 0 && (
+              <Box marginTop={1}>
+                <Text color={COLORS.dimText}>
+                  Session: {getSessionToggleCount()} flag(s) changed — will revert on exit
+                </Text>
+              </Box>
+            )}
+          </>
         )}
 
-        <Box marginTop={1} flexDirection="column">
-          {loading && flags.length === 0 && (
-            <Text color={COLORS.stepRunning}>Loading…</Text>
-          )}
-          {loading && flags.length > 0 && (
-            <Text color={COLORS.dimText}>Refreshing…</Text>
-          )}
-          {flags.map((f, i) => {
-            const selected = i === selectedIndex;
-            const prefix = selected ? '▸' : ' ';
-            const stateDot = f.on ? '●' : '○';
-            const isBusy = togglingKey === f.key;
-            const stateLabel = isBusy ? '...' : f.on ? 'ON' : 'OFF';
-            const stateColor = isBusy ? COLORS.stepRunning : f.on ? COLORS.stepComplete : COLORS.dimText;
-            const showToggled = toggledKey === f.key && !isBusy;
-            return (
-              <Box key={f.key}>
-                <Text color={selected ? COLORS.stepRunning : COLORS.dimText}>
-                  {prefix} {stateDot} {padName(f.key)}
-                </Text>
-                <Text color={stateColor}> {stateLabel}</Text>
-                {showToggled && (
-                  <Text color={COLORS.stepComplete}>  Toggled</Text>
-                )}
-              </Box>
-            );
-          })}
-        </Box>
-
-        {getSessionToggleCount() > 0 && (
-          <Box marginTop={1}>
-            <Text color={COLORS.dimText}>
-              Session: {getSessionToggleCount()} flag(s) changed — will revert on exit
+        {view === 'detail' && detailFlag && (
+          <Box flexDirection="column">
+            <Text color={COLORS.contextValue} bold>{detailFlag.key}</Text>
+            <Text color={detailFlag.on ? COLORS.stepComplete : COLORS.dimText}>
+              {detailFlag.on ? '● ON' : '○ OFF'}
             </Text>
+
+            {error && (
+              <Box marginTop={1}><Text color={COLORS.stepError}>{error}</Text></Box>
+            )}
+
+            <Box marginTop={1} flexDirection="column">
+              <Text color={COLORS.dimText}>Fallthrough variation (served when flag is ON):</Text>
+              {detailFlag.fallthroughVariationId === null ? (
+                <Text color={COLORS.stepRunning}>  Rollout (not editable)</Text>
+              ) : (
+                detailFlag.variations.map((v, i) => {
+                  const selected = i === variationIndex;
+                  const isCurrent = v.id === detailFlag.fallthroughVariationId;
+                  const prefix = selected ? '▸' : ' ';
+                  const valStr = JSON.stringify(v.value).slice(0, 30);
+                  const isBusy = settingVariation && selected;
+                  return (
+                    <Box key={v.id}>
+                      <Text color={selected ? COLORS.stepRunning : COLORS.dimText}>
+                        {prefix} {variationDisplayName(v, i).padEnd(36)} {valStr}
+                      </Text>
+                      {isBusy && <Text color={COLORS.stepRunning}> ...</Text>}
+                      {isCurrent && !isBusy && <Text color={COLORS.stepComplete}> ← current</Text>}
+                      {toggledKey === detailFlag.key && selected && !isBusy && !isCurrent && (
+                        <Text color={COLORS.stepComplete}> ✓</Text>
+                      )}
+                    </Box>
+                  );
+                })
+              )}
+            </Box>
+
+            {getSessionToggleCount() > 0 && (
+              <Box marginTop={1}>
+                <Text color={COLORS.dimText}>
+                  Session: {getSessionToggleCount()} flag(s) changed — will revert on exit
+                </Text>
+              </Box>
+            )}
           </Box>
         )}
       </Box>
