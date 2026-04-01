@@ -1,8 +1,10 @@
 import type { Env } from '../types.js';
+import type { LDRollout } from '../api/launchdarkly.js';
 
 interface ToggleRecord {
   originalOn: boolean;
   originalFallthroughId: string | null;
+  originalFallthroughRollout: LDRollout | null;
   originalFallthroughName: string | null;
   env: Env;
 }
@@ -14,12 +16,14 @@ export function recordSnapshot(
   originalOn: boolean,
   originalFallthroughId: string | null,
   env: Env,
-  originalFallthroughName?: string | null
+  originalFallthroughName?: string | null,
+  originalFallthroughRollout?: LDRollout | null
 ): void {
   if (!sessionToggles.has(flagKey)) {
     sessionToggles.set(flagKey, {
       originalOn,
       originalFallthroughId,
+      originalFallthroughRollout: originalFallthroughRollout ?? null,
       originalFallthroughName: originalFallthroughName ?? null,
       env,
     });
@@ -38,6 +42,7 @@ export function getSessionToggleEntries(): Array<{
   key: string;
   originalOn: boolean;
   originalFallthroughId: string | null;
+  originalFallthroughRollout: LDRollout | null;
   originalFallthroughName: string | null;
   env: Env;
 }> {
@@ -45,6 +50,7 @@ export function getSessionToggleEntries(): Array<{
     key,
     originalOn: rec.originalOn,
     originalFallthroughId: rec.originalFallthroughId,
+    originalFallthroughRollout: rec.originalFallthroughRollout,
     originalFallthroughName: rec.originalFallthroughName,
     env: rec.env,
   }));
@@ -67,8 +73,10 @@ export async function revertSessionToggles(): Promise<void> {
   sessionToggles.clear();
 
   await Promise.allSettled(
-    entries.map(async ([flagKey, { originalOn, originalFallthroughId, env }]) => {
-      if (originalFallthroughId !== null) {
+    entries.map(async ([flagKey, { originalOn, originalFallthroughId, originalFallthroughRollout, env }]) => {
+      if (originalFallthroughRollout !== null) {
+        await client.restoreFallthroughRollout(flagKey, env, originalFallthroughRollout);
+      } else if (originalFallthroughId !== null) {
         await client.setFallthroughVariation(flagKey, env, originalFallthroughId);
       }
       await client.toggleFlag(flagKey, env, originalOn);

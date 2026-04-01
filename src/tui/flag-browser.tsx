@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
-import { LDClient, type LDFlag, type LDVariation } from '../api/launchdarkly.js';
+import { LDClient, type LDFlag, type LDVariation, type LDRollout } from '../api/launchdarkly.js';
 import type { Env } from '../types.js';
 import { COLORS } from './theme.js';
 import { recordSnapshot, getSessionToggleCount } from './flag-session.js';
@@ -99,7 +99,7 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
     setError(null);
     try {
       const origFtVar = activeFlag.variations.find(v => v.id === activeFlag.fallthroughVariationId);
-      recordSnapshot(activeFlag.key, activeFlag.on, activeFlag.fallthroughVariationId, env, origFtVar?.name ?? null);
+      recordSnapshot(activeFlag.key, activeFlag.on, activeFlag.fallthroughVariationId, env, origFtVar?.name ?? null, activeFlag.fallthroughRollout);
       const newState = !activeFlag.on;
       await client.toggleFlag(activeFlag.key, env, newState);
       setTogglingKey(null);
@@ -122,12 +122,12 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
   const handleSetVariation = useCallback(async () => {
     if (!client || !detailFlag || settingVariation) return;
     const variation = detailFlag.variations[variationIndex];
-    if (!variation || variation.id === detailFlag.fallthroughVariationId) return;
+    if (!variation || (variation.id === detailFlag.fallthroughVariationId && !detailFlag.fallthroughRollout)) return;
     setSettingVariation(true);
     setError(null);
     try {
       const origFtVar = detailFlag.variations.find(v => v.id === detailFlag.fallthroughVariationId);
-      recordSnapshot(detailFlag.key, detailFlag.on, detailFlag.fallthroughVariationId, env, origFtVar?.name ?? null);
+      recordSnapshot(detailFlag.key, detailFlag.on, detailFlag.fallthroughVariationId, env, origFtVar?.name ?? null, detailFlag.fallthroughRollout);
       await client.setFallthroughVariation(detailFlag.key, env, variation.id);
       setToggledKey(detailFlag.key);
       if (toggledTimeoutRef.current) clearTimeout(toggledTimeoutRef.current);
@@ -138,7 +138,7 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
       await loadFlags();
       setDetailFlag(prev => {
         if (!prev) return prev;
-        return { ...prev, fallthroughVariationId: variation.id };
+        return { ...prev, fallthroughVariationId: variation.id, fallthroughRollout: null };
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -170,7 +170,7 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
         return;
       }
       if (key.return) {
-        if (detailFlag.fallthroughVariationId !== null) void handleSetVariation();
+        void handleSetVariation();
         return;
       }
       if (input === 't') {
@@ -273,7 +273,9 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
                 const stateColor = isBusy ? COLORS.stepRunning : f.on ? COLORS.stepComplete : COLORS.dimText;
                 const showToggled = toggledKey === f.key && !isBusy;
                 const ftVariation = f.variations.find(v => v.id === f.fallthroughVariationId);
-                const ftLabel = ftVariation ? variationDisplayName(ftVariation, f.variations.indexOf(ftVariation)) : '';
+                const ftLabel = ftVariation
+                  ? variationDisplayName(ftVariation, f.variations.indexOf(ftVariation))
+                  : f.fallthroughRollout ? 'rollout' : '';
                 return (
                   <Box key={f.key}>
                     <Text color={selected ? COLORS.stepRunning : COLORS.dimText}>
@@ -305,6 +307,9 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
             <Text color={detailFlag.on ? COLORS.stepComplete : COLORS.dimText}>
               {detailFlag.on ? '● ON' : '○ OFF'}
             </Text>
+            {detailFlag.fallthroughRollout && (
+              <Text color={COLORS.dimText}>Currently: percentage rollout</Text>
+            )}
 
             {error && (
               <Box marginTop={1}><Text color={COLORS.stepError}>{error}</Text></Box>
@@ -312,29 +317,29 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
 
             <Box marginTop={1} flexDirection="column">
               <Text color={COLORS.dimText}>Fallthrough variation (served when flag is ON):</Text>
-              {detailFlag.fallthroughVariationId === null ? (
-                <Text color={COLORS.stepRunning}>  Rollout (not editable)</Text>
-              ) : (
-                detailFlag.variations.map((v, i) => {
-                  const selected = i === variationIndex;
-                  const isCurrent = v.id === detailFlag.fallthroughVariationId;
-                  const prefix = selected ? '▸' : ' ';
-                  const valStr = JSON.stringify(v.value).slice(0, 30);
-                  const isBusy = settingVariation && selected;
-                  return (
-                    <Box key={v.id}>
-                      <Text color={selected ? COLORS.stepRunning : COLORS.dimText}>
-                        {prefix} {variationDisplayName(v, i).padEnd(36)} {valStr}
-                      </Text>
-                      {isBusy && <Text color={COLORS.stepRunning}> ...</Text>}
-                      {isCurrent && !isBusy && <Text color={COLORS.stepComplete}> ← current</Text>}
-                      {toggledKey === detailFlag.key && selected && !isBusy && !isCurrent && (
-                        <Text color={COLORS.stepComplete}> ✓</Text>
-                      )}
-                    </Box>
-                  );
-                })
-              )}
+              {detailFlag.variations.map((v, i) => {
+                const selected = i === variationIndex;
+                const isCurrent = v.id === detailFlag.fallthroughVariationId;
+                const rolloutWeight = detailFlag.fallthroughRollout?.weights[v.id];
+                const prefix = selected ? '▸' : ' ';
+                const valStr = JSON.stringify(v.value).slice(0, 30);
+                const isBusy = settingVariation && selected;
+                return (
+                  <Box key={v.id}>
+                    <Text color={selected ? COLORS.stepRunning : COLORS.dimText}>
+                      {prefix} {variationDisplayName(v, i).padEnd(36)} {valStr}
+                    </Text>
+                    {isBusy && <Text color={COLORS.stepRunning}> ...</Text>}
+                    {isCurrent && !isBusy && <Text color={COLORS.stepComplete}> ← current</Text>}
+                    {rolloutWeight !== undefined && !isBusy && !isCurrent && (
+                      <Text color={COLORS.dimText}> {(rolloutWeight / 1000).toFixed(1)}%</Text>
+                    )}
+                    {toggledKey === detailFlag.key && selected && !isBusy && !isCurrent && (
+                      <Text color={COLORS.stepComplete}> ✓</Text>
+                    )}
+                  </Box>
+                );
+              })}
             </Box>
 
             {getSessionToggleCount() > 0 && (

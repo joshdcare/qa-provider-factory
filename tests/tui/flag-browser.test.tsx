@@ -25,10 +25,10 @@ describe('FlagBrowser', () => {
     originalProject = process.env.LD_PROJECT_KEY;
     searchFlagsMock.mockResolvedValue([]);
     toggleFlagMock.mockImplementation(async (_key: string, _env: string, _state: boolean) => ({
-      key: 'k', name: 'n', on: true, variations: [], fallthroughVariationId: null,
+      key: 'k', name: 'n', on: true, variations: [], fallthroughVariationId: null, fallthroughRollout: null,
     }));
     setFallthroughVariationMock.mockResolvedValue({
-      key: 'k', name: 'n', on: true, variations: [], fallthroughVariationId: null,
+      key: 'k', name: 'n', on: true, variations: [], fallthroughVariationId: null, fallthroughRollout: null,
     });
   });
 
@@ -91,6 +91,7 @@ describe('FlagBrowser', () => {
           { id: 'v2', name: 'test', value: 'test' },
         ],
         fallthroughVariationId: 'v1',
+        fallthroughRollout: null,
       },
     ]);
 
@@ -130,6 +131,7 @@ describe('FlagBrowser', () => {
         { id: 'v2', name: 'test', value: 'test' },
       ],
       fallthroughVariationId: 'v1',
+      fallthroughRollout: null,
     };
     searchFlagsMock.mockResolvedValue([flag]);
     setFallthroughVariationMock.mockResolvedValue({ ...flag, fallthroughVariationId: 'v2' });

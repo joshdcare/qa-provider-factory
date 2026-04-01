@@ -8,12 +8,18 @@ export interface LDVariation {
   value: unknown;
 }
 
+export interface LDRollout {
+  weights: Record<string, number>;
+  bucketBy?: string;
+}
+
 export interface LDFlag {
   key: string;
   name: string;
   on: boolean;
   variations: LDVariation[];
   fallthroughVariationId: string | null;
+  fallthroughRollout: LDRollout | null;
 }
 
 type FetchImpl = typeof fetch;
@@ -40,7 +46,13 @@ function mapItemToFlag(
     key: string;
     name: string;
     variations?: Array<{ _id: string; name?: string; value: unknown }>;
-    environments?: Record<string, { on?: boolean; fallthrough?: { variation?: number; rollout?: unknown } }>;
+    environments?: Record<string, {
+      on?: boolean;
+      fallthrough?: {
+        variation?: number;
+        rollout?: { variations?: Array<{ variation: number; weight: number }>; bucketBy?: string };
+      };
+    }>;
   },
   envKey: string
 ): LDFlag {
@@ -54,12 +66,26 @@ function mapItemToFlag(
   }));
 
   let fallthroughVariationId: string | null = null;
+  let fallthroughRollout: LDRollout | null = null;
   const ft = envData?.fallthrough;
-  if (ft && typeof ft.variation === 'number' && variations[ft.variation]) {
-    fallthroughVariationId = variations[ft.variation].id;
+  if (ft) {
+    if (typeof ft.variation === 'number' && variations[ft.variation]) {
+      fallthroughVariationId = variations[ft.variation].id;
+    } else if (ft.rollout?.variations) {
+      const weights: Record<string, number> = {};
+      for (const rv of ft.rollout.variations) {
+        if (variations[rv.variation]) {
+          weights[variations[rv.variation].id] = rv.weight;
+        }
+      }
+      fallthroughRollout = { weights };
+      if (ft.rollout.bucketBy) {
+        fallthroughRollout.bucketBy = ft.rollout.bucketBy;
+      }
+    }
   }
 
-  return { key: item.key, name: item.name, on, variations, fallthroughVariationId };
+  return { key: item.key, name: item.name, on, variations, fallthroughVariationId, fallthroughRollout };
 }
 
 export class LDClient {
@@ -99,7 +125,13 @@ export class LDClient {
           key: string;
           name: string;
           variations?: Array<{ _id: string; name?: string; value: unknown }>;
-          environments?: Record<string, { on?: boolean; fallthrough?: { variation?: number; rollout?: unknown } }>;
+          environments?: Record<string, {
+            on?: boolean;
+            fallthrough?: {
+              variation?: number;
+              rollout?: { variations?: Array<{ variation: number; weight: number }>; bucketBy?: string };
+            };
+          }>;
         },
         envKey
       )
@@ -136,7 +168,13 @@ export class LDClient {
       key: string;
       name: string;
       variations?: Array<{ _id: string; name?: string; value: unknown }>;
-      environments?: Record<string, { on?: boolean; fallthrough?: { variation?: number; rollout?: unknown } }>;
+      environments?: Record<string, {
+        on?: boolean;
+        fallthrough?: {
+          variation?: number;
+          rollout?: { variations?: Array<{ variation: number; weight: number }>; bucketBy?: string };
+        };
+      }>;
     };
     return mapItemToFlag(item, envKey);
   }
@@ -171,7 +209,61 @@ export class LDClient {
       key: string;
       name: string;
       variations?: Array<{ _id: string; name?: string; value: unknown }>;
-      environments?: Record<string, { on?: boolean; fallthrough?: { variation?: number; rollout?: unknown } }>;
+      environments?: Record<string, {
+        on?: boolean;
+        fallthrough?: {
+          variation?: number;
+          rollout?: { variations?: Array<{ variation: number; weight: number }>; bucketBy?: string };
+        };
+      }>;
+    };
+    return mapItemToFlag(item, envKey);
+  }
+
+  async restoreFallthroughRollout(
+    flagKey: string,
+    ldEnv: string,
+    rollout: LDRollout,
+    fetchImpl: FetchImpl = this.defaultFetch
+  ): Promise<LDFlag> {
+    if (!(ldEnv in LD_ENV_MAP)) {
+      throw new Error('Toggling in that environment is not allowed');
+    }
+    const envKey = LD_ENV_MAP[ldEnv as Env];
+    const url = `${LD_API_BASE}/flags/${encodeURIComponent(this.projectKey)}/${encodeURIComponent(flagKey)}`;
+    const instruction: Record<string, unknown> = {
+      kind: 'updateFallthroughVariationOrRollout',
+      rolloutWeights: rollout.weights,
+    };
+    if (rollout.bucketBy) {
+      instruction.rolloutBucketBy = rollout.bucketBy;
+    }
+    const body = JSON.stringify({
+      environmentKey: envKey,
+      instructions: [instruction],
+    });
+
+    const res = await fetchImpl(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: this.token,
+        'Content-Type': 'application/json; domain-model=launchdarkly.semanticpatch',
+      },
+      body,
+    });
+
+    await throwIfNotOk(res);
+    const item = (await res.json()) as {
+      key: string;
+      name: string;
+      variations?: Array<{ _id: string; name?: string; value: unknown }>;
+      environments?: Record<string, {
+        on?: boolean;
+        fallthrough?: {
+          variation?: number;
+          rollout?: { variations?: Array<{ variation: number; weight: number }>; bucketBy?: string };
+        };
+      }>;
     };
     return mapItemToFlag(item, envKey);
   }

@@ -2,11 +2,13 @@ import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 
 const toggleFlagMock = vi.fn();
 const setFallthroughVariationMock = vi.fn();
+const restoreFallthroughRolloutMock = vi.fn();
 
 vi.mock('../../src/api/launchdarkly.js', () => ({
   LDClient: class {
     toggleFlag = toggleFlagMock;
     setFallthroughVariation = setFallthroughVariationMock;
+    restoreFallthroughRollout = restoreFallthroughRolloutMock;
   },
 }));
 
@@ -41,6 +43,7 @@ describe('flag-session', () => {
       key: 'flag-a',
       originalOn: true,
       originalFallthroughId: 'v1',
+      originalFallthroughRollout: null,
       originalFallthroughName: null,
       env: 'dev',
     });
@@ -68,6 +71,7 @@ describe('flag-session', () => {
       process.env.LD_PROJECT_KEY = 'test-project';
       toggleFlagMock.mockResolvedValue(undefined);
       setFallthroughVariationMock.mockResolvedValue(undefined);
+      restoreFallthroughRolloutMock.mockResolvedValue(undefined);
     });
 
     it('calls setFallthroughVariation then toggleFlag per flag', async () => {
@@ -111,6 +115,16 @@ describe('flag-session', () => {
       await revertSessionToggles();
 
       expect(toggleFlagMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('calls restoreFallthroughRollout for rollout flags', async () => {
+      recordSnapshot('flag-r', true, null, 'dev', null, { weights: { v1: 50000, v2: 50000 } });
+
+      await revertSessionToggles();
+
+      expect(restoreFallthroughRolloutMock).toHaveBeenCalledWith('flag-r', 'dev', { weights: { v1: 50000, v2: 50000 } });
+      expect(setFallthroughVariationMock).not.toHaveBeenCalled();
+      expect(toggleFlagMock).toHaveBeenCalledWith('flag-r', 'dev', true);
     });
   });
 });

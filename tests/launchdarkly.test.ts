@@ -51,6 +51,7 @@ describe('LDClient', () => {
           { id: 'v2', name: 'test', value: 'test' },
         ],
         fallthroughVariationId: 'v2',
+        fallthroughRollout: null,
       });
     });
 
@@ -82,6 +83,9 @@ describe('LDClient', () => {
       const flags = await client.searchFlags('q', 'dev');
 
       expect(flags[0].fallthroughVariationId).toBeNull();
+      expect(flags[0].fallthroughRollout).toEqual({
+        weights: { v1: 50000, v2: 50000 },
+      });
     });
 
     it('omits filter when query is empty', async () => {
@@ -134,6 +138,7 @@ describe('LDClient', () => {
           { id: 'v2', name: 'on', value: true },
         ],
         fallthroughVariationId: 'v1',
+        fallthroughRollout: null,
       });
 
       expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -210,6 +215,54 @@ describe('LDClient', () => {
         client.setFallthroughVariation('flag', 'prod' as never, 'v1')
       ).rejects.toThrow(/not allowed/i);
       expect(fetchImpl).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('restoreFallthroughRollout', () => {
+    it('sends rollout weights in semantic patch', async () => {
+      const updated = {
+        key: 'my-flag',
+        name: 'My Flag',
+        variations: [
+          { _id: 'v1', name: 'control', value: 'control' },
+          { _id: 'v2', name: 'test', value: 'test' },
+        ],
+        environments: {
+          dev: {
+            on: true,
+            fallthrough: {
+              rollout: { variations: [{ variation: 0, weight: 50000 }, { variation: 1, weight: 50000 }] },
+            },
+          },
+        },
+      };
+      fetchImpl.mockResolvedValueOnce(mockJsonResponse(updated));
+
+      const client = new LDClient('api-token', PROJECT, fetchImpl);
+      const rollout = { weights: { v1: 50000, v2: 50000 } };
+      const result = await client.restoreFallthroughRollout('my-flag', 'dev', rollout);
+
+      expect(result.fallthroughRollout).toEqual({ weights: { v1: 50000, v2: 50000 } });
+
+      const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`${BASE}/flags/${PROJECT}/my-flag`);
+      expect(init.method).toBe('PATCH');
+      expect(JSON.parse(init.body as string)).toEqual({
+        environmentKey: 'dev',
+        instructions: [{ kind: 'updateFallthroughVariationOrRollout', rolloutWeights: { v1: 50000, v2: 50000 } }],
+      });
+    });
+
+    it('includes bucketBy when present', async () => {
+      fetchImpl.mockResolvedValueOnce(mockJsonResponse({
+        key: 'f', name: 'F', variations: [], environments: { dev: { on: true } },
+      }));
+
+      const client = new LDClient('api-token', PROJECT, fetchImpl);
+      await client.restoreFallthroughRollout('f', 'dev', { weights: { v1: 100000 }, bucketBy: 'email' });
+
+      const body = JSON.parse((fetchImpl.mock.calls[0] as [string, RequestInit])[1].body as string);
+      expect(body.instructions[0].rolloutBucketBy).toBe('email');
     });
   });
 
