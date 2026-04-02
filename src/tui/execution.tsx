@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
-import type { RunEmitter, RunEvent } from './emitter.js';
+import type { RunEmitter, RunEvent, CreatedUser } from './emitter.js';
 import type { Step, Platform, Tier, Vertical, Env } from '../types.js';
 import { LogPanel, type LogEntry } from './log-panel.js';
 import { STEP_DESCRIPTIONS } from './step-descriptions.js';
@@ -74,6 +74,7 @@ export function Execution({
   const [done, setDone] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [context, setContext] = useState<Record<string, string>>({});
+  const [createdUsers, setCreatedUsers] = useState<CreatedUser[]>([]);
   const [recentLines, setRecentLines] = useState<string[]>([]);
   const [menuIndex, setMenuIndex] = useState(0);
   const [startTime] = useState(Date.now());
@@ -92,11 +93,25 @@ export function Execution({
   const quitRequestedRef = useRef(false);
   const [logVersion, setLogVersion] = useState(0);
 
+  const pendingLinesRef = useRef<string[]>([]);
+  const logDirtyRef = useRef(false);
+
   useEffect(() => {
-    if (logsExpanded) return;
-    const timer = setInterval(() => setElapsed(Date.now() - startTime), 1000);
+    const tick = () => {
+      setElapsed(Date.now() - startTime);
+      if (logDirtyRef.current) {
+        logDirtyRef.current = false;
+        setLogVersion(v => v + 1);
+      }
+      if (pendingLinesRef.current.length > 0) {
+        const lines = pendingLinesRef.current.slice(-3);
+        pendingLinesRef.current = [];
+        setRecentLines(lines);
+      }
+    };
+    const timer = setInterval(tick, 500);
     return () => clearInterval(timer);
-  }, [startTime, logsExpanded]);
+  }, [startTime]);
 
   useEffect(() => {
     const addEntry = (event: RunEvent) => {
@@ -106,9 +121,7 @@ export function Execution({
       const step = activeStepRef.current;
       if (!map.has(step)) map.set(step, []);
       map.get(step)!.push(entry);
-      if (!logsExpandedRef.current || monitoringRef.current) {
-        setLogVersion(v => v + 1);
-      }
+      logDirtyRef.current = true;
     };
 
     const handler = (event: RunEvent) => {
@@ -123,21 +136,22 @@ export function Execution({
       } else if (event.type === 'step-error') {
         setStepStatuses(prev => new Map(prev).set(event.step, 'error'));
         setWaiting(true);
+      } else if (event.type === 'user-created') {
+        setCreatedUsers(prev => [...prev, event.user]);
       } else if (event.type === 'context-update') {
         setContext(prev => ({ ...prev, [event.key]: event.value }));
       } else if (event.type === 'monitoring-start') {
         setMonitoring(true);
       } else if (event.type === 'run-complete') {
         setDone(true);
+        logDirtyRef.current = true;
         if (quitRequestedRef.current) {
           setTimeout(() => { onQuit(); }, 0);
         }
       }
 
-      if (!logsExpandedRef.current || monitoringRef.current) {
-        const line = eventToLine(event);
-        if (line) setRecentLines(prev => [...prev.slice(-2), line]);
-      }
+      const line = eventToLine(event);
+      if (line) pendingLinesRef.current.push(line);
 
       addEntry(event);
     };
@@ -283,14 +297,25 @@ export function Execution({
               <Text color={COLORS.stepComplete} bold>All done! {completedCount}/{steps.length} steps · {elapsedStr}</Text>
               <Text color={COLORS.dimText}>{platform} · {verticals.join(', ')} · {tier} · {env}</Text>
 
-              {context.email && (
+              {createdUsers.length > 0 && (
                 <Box marginTop={1} flexDirection="column">
-                  <Text color={COLORS.stepComplete} bold>Created User</Text>
-                  <Text>  <Text color={COLORS.dimText}>Email:</Text>     <Text color={COLORS.contextValue} bold>{context.email}</Text></Text>
-                  {context.password && <Text>  <Text color={COLORS.dimText}>Password:</Text>  <Text color={COLORS.contextValue} bold>{context.password}</Text></Text>}
-                  {context.memberId && <Text>  <Text color={COLORS.dimText}>MemberId:</Text>  <Text color={COLORS.contextValue} bold>{context.memberId}</Text></Text>}
-                  {context.uuid && <Text>  <Text color={COLORS.dimText}>UUID:</Text>      <Text color={COLORS.contextValue} bold>{context.uuid}</Text></Text>}
-                  {context.vertical && <Text>  <Text color={COLORS.dimText}>Vertical:</Text>  <Text color={COLORS.contextValue}>{context.vertical}</Text></Text>}
+                  <Text color={COLORS.stepComplete} bold>
+                    Created User{createdUsers.length > 1 ? 's' : ''} ({createdUsers.length})
+                  </Text>
+                  {createdUsers.map((u, i) => (
+                    <Box key={i} flexDirection="column" marginTop={i > 0 ? 1 : 0}>
+                      {createdUsers.length > 1 && (
+                        <Text color={COLORS.dimText}>  ── #{u.runIndex}{u.vertical ? ` · ${u.vertical}` : ''} ──</Text>
+                      )}
+                      <Text>  <Text color={COLORS.dimText}>Email:</Text>     <Text color={COLORS.contextValue} bold>{u.email}</Text></Text>
+                      {u.password && <Text>  <Text color={COLORS.dimText}>Password:</Text>  <Text color={COLORS.contextValue} bold>{u.password}</Text></Text>}
+                      {u.memberId && <Text>  <Text color={COLORS.dimText}>MemberId:</Text>  <Text color={COLORS.contextValue} bold>{u.memberId}</Text></Text>}
+                      {u.uuid && <Text>  <Text color={COLORS.dimText}>UUID:</Text>      <Text color={COLORS.contextValue} bold>{u.uuid}</Text></Text>}
+                      {u.vertical && createdUsers.length === 1 && (
+                        <Text>  <Text color={COLORS.dimText}>Vertical:</Text>  <Text color={COLORS.contextValue}>{u.vertical}</Text></Text>
+                      )}
+                    </Box>
+                  ))}
                 </Box>
               )}
 
@@ -315,14 +340,22 @@ export function Execution({
                 Close the browser or press q to finish.
               </Text>
 
-              {context.email && (
+              {createdUsers.length > 0 && (
                 <Box marginTop={1} flexDirection="column">
-                  <Text color={COLORS.stepComplete} bold>Created User</Text>
-                  <Text>  <Text color={COLORS.dimText}>Email:</Text>     <Text color={COLORS.contextValue} bold>{context.email}</Text></Text>
-                  {context.password && <Text>  <Text color={COLORS.dimText}>Password:</Text>  <Text color={COLORS.contextValue} bold>{context.password}</Text></Text>}
-                  {context.memberId && <Text>  <Text color={COLORS.dimText}>MemberId:</Text>  <Text color={COLORS.contextValue} bold>{context.memberId}</Text></Text>}
-                  {context.uuid && <Text>  <Text color={COLORS.dimText}>UUID:</Text>      <Text color={COLORS.contextValue} bold>{context.uuid}</Text></Text>}
-                  {context.vertical && <Text>  <Text color={COLORS.dimText}>Vertical:</Text>  <Text color={COLORS.contextValue}>{context.vertical}</Text></Text>}
+                  <Text color={COLORS.stepComplete} bold>
+                    Created User{createdUsers.length > 1 ? 's' : ''} ({createdUsers.length})
+                  </Text>
+                  {createdUsers.map((u, i) => (
+                    <Box key={i} flexDirection="column" marginTop={i > 0 ? 1 : 0}>
+                      {createdUsers.length > 1 && (
+                        <Text color={COLORS.dimText}>  ── #{u.runIndex}{u.vertical ? ` · ${u.vertical}` : ''} ──</Text>
+                      )}
+                      <Text>  <Text color={COLORS.dimText}>Email:</Text>     <Text color={COLORS.contextValue} bold>{u.email}</Text></Text>
+                      {u.password && <Text>  <Text color={COLORS.dimText}>Password:</Text>  <Text color={COLORS.contextValue} bold>{u.password}</Text></Text>}
+                      {u.memberId && <Text>  <Text color={COLORS.dimText}>MemberId:</Text>  <Text color={COLORS.contextValue} bold>{u.memberId}</Text></Text>}
+                      {u.uuid && <Text>  <Text color={COLORS.dimText}>UUID:</Text>      <Text color={COLORS.contextValue} bold>{u.uuid}</Text></Text>}
+                    </Box>
+                  ))}
                 </Box>
               )}
 

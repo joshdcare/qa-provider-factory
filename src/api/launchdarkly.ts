@@ -95,6 +95,38 @@ export class LDClient {
     private readonly defaultFetch: FetchImpl = globalThis.fetch.bind(globalThis)
   ) {}
 
+  async getFlag(
+    flagKey: string,
+    ldEnv: Env,
+    fetchImpl: FetchImpl = this.defaultFetch
+  ): Promise<LDFlag> {
+    const envKey = LD_ENV_MAP[ldEnv];
+    const url = new URL(
+      `${LD_API_BASE}/flags/${encodeURIComponent(this.projectKey)}/${encodeURIComponent(flagKey)}`
+    );
+    url.searchParams.set('env', envKey);
+
+    const res = await fetchImpl(url.toString(), {
+      method: 'GET',
+      headers: { Authorization: this.token },
+    });
+
+    await throwIfNotOk(res);
+    const item = (await res.json()) as {
+      key: string;
+      name: string;
+      variations?: Array<{ _id: string; name?: string; value: unknown }>;
+      environments?: Record<string, {
+        on?: boolean;
+        fallthrough?: {
+          variation?: number;
+          rollout?: { variations?: Array<{ variation: number; weight: number }>; bucketBy?: string };
+        };
+      }>;
+    };
+    return mapItemToFlag(item, envKey);
+  }
+
   async searchFlags(
     query: string,
     ldEnv: Env,
@@ -194,6 +226,67 @@ export class LDClient {
       environmentKey: envKey,
       instructions: [{ kind: 'updateFallthroughVariationOrRollout', variationId }],
     });
+
+    const res = await fetchImpl(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: this.token,
+        'Content-Type': 'application/json; domain-model=launchdarkly.semanticpatch',
+      },
+      body,
+    });
+
+    await throwIfNotOk(res);
+    const item = (await res.json()) as {
+      key: string;
+      name: string;
+      variations?: Array<{ _id: string; name?: string; value: unknown }>;
+      environments?: Record<string, {
+        on?: boolean;
+        fallthrough?: {
+          variation?: number;
+          rollout?: { variations?: Array<{ variation: number; weight: number }>; bucketBy?: string };
+        };
+      }>;
+    };
+    return mapItemToFlag(item, envKey);
+  }
+
+  async revertFlag(
+    flagKey: string,
+    ldEnv: string,
+    originalOn: boolean,
+    originalFallthroughId: string | null,
+    originalFallthroughRollout: LDRollout | null,
+    fetchImpl: FetchImpl = this.defaultFetch
+  ): Promise<LDFlag> {
+    if (!(ldEnv in LD_ENV_MAP)) {
+      throw new Error('Toggling in that environment is not allowed');
+    }
+    const envKey = LD_ENV_MAP[ldEnv as Env];
+    const url = `${LD_API_BASE}/flags/${encodeURIComponent(this.projectKey)}/${encodeURIComponent(flagKey)}`;
+
+    const instructions: Array<Record<string, unknown>> = [];
+
+    if (originalFallthroughRollout !== null) {
+      const rolloutInstr: Record<string, unknown> = {
+        kind: 'updateFallthroughVariationOrRollout',
+        rolloutWeights: originalFallthroughRollout.weights,
+      };
+      if (originalFallthroughRollout.bucketBy) {
+        rolloutInstr.rolloutBucketBy = originalFallthroughRollout.bucketBy;
+      }
+      instructions.push(rolloutInstr);
+    } else if (originalFallthroughId !== null) {
+      instructions.push({
+        kind: 'updateFallthroughVariationOrRollout',
+        variationId: originalFallthroughId,
+      });
+    }
+
+    instructions.push({ kind: originalOn ? 'turnFlagOn' : 'turnFlagOff' });
+
+    const body = JSON.stringify({ environmentKey: envKey, instructions });
 
     const res = await fetchImpl(url, {
       method: 'PATCH',

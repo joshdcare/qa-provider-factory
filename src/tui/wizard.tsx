@@ -300,7 +300,7 @@ export function Wizard({ onComplete }: WizardProps): React.ReactElement {
               <Text><Text color={COLORS.dimText}>Vertical    </Text><Text color={COLORS.contextValue}>{verticals.join(', ')}</Text></Text>
               <Text><Text color={COLORS.dimText}>Step        </Text><Text color={COLORS.contextValue}>{step}</Text></Text>
               <Text><Text color={COLORS.dimText}>Tier        </Text><Text color={COLORS.contextValue}>{tier}</Text></Text>
-              <Text><Text color={COLORS.dimText}>Count       </Text><Text color={COLORS.contextValue}>{count}</Text></Text>
+              <Text><Text color={COLORS.dimText}>Count       </Text><Text color={COLORS.contextValue}>{count} per vertical{verticals.length > 1 ? ` (${parseInt(count, 10) * verticals.length} total)` : ''}</Text></Text>
               <Text><Text color={COLORS.dimText}>Environment </Text><Text color={COLORS.contextValue}>{env}</Text></Text>
             </Box>
             {toggledFlags.length > 0 && (

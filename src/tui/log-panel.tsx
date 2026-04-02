@@ -136,5 +136,7 @@ function LogLine({ entry, detailMode }: { entry: LogEntry; detailMode: boolean }
       return <Text color={COLORS.stepComplete} bold>✅ Run complete</Text>;
     case 'monitoring-start':
       return <Text color={COLORS.systemEvent}>👁 Monitoring browser...</Text>;
+    case 'user-created':
+      return <Text color={COLORS.stepComplete}>✓ User created: {event.user.email}</Text>;
   }
 }

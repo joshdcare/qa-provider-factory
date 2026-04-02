@@ -20,13 +20,17 @@ export function recordSnapshot(
   originalFallthroughRollout?: LDRollout | null
 ): void {
   if (!sessionToggles.has(flagKey)) {
-    sessionToggles.set(flagKey, {
+    const rec: ToggleRecord = {
       originalOn,
       originalFallthroughId,
       originalFallthroughRollout: originalFallthroughRollout ?? null,
       originalFallthroughName: originalFallthroughName ?? null,
       env,
-    });
+    };
+    sessionToggles.set(flagKey, rec);
+    process.stderr.write(
+      `[session] snapshot ${flagKey}: on=${originalOn} ftId=${originalFallthroughId} rollout=${originalFallthroughRollout !== null && originalFallthroughRollout !== undefined}\n`
+    );
   }
 }
 
@@ -56,13 +60,17 @@ export function getSessionToggleEntries(): Array<{
   }));
 }
 
+let reverting = false;
+
 export async function revertSessionToggles(): Promise<void> {
-  if (sessionToggles.size === 0) return;
+  if (sessionToggles.size === 0 || reverting) return;
+  reverting = true;
 
   const token = process.env.LD_API_TOKEN;
   const projectKey = process.env.LD_PROJECT_KEY;
   if (!token || !projectKey) {
     sessionToggles.clear();
+    reverting = false;
     return;
   }
 
@@ -72,14 +80,46 @@ export async function revertSessionToggles(): Promise<void> {
   const entries = [...sessionToggles.entries()];
   sessionToggles.clear();
 
-  await Promise.allSettled(
+  process.stderr.write(`\nReverting ${entries.length} flag(s)…\n`);
+
+  const results = await Promise.allSettled(
     entries.map(async ([flagKey, { originalOn, originalFallthroughId, originalFallthroughRollout, env }]) => {
-      if (originalFallthroughRollout !== null) {
-        await client.restoreFallthroughRollout(flagKey, env, originalFallthroughRollout);
-      } else if (originalFallthroughId !== null) {
-        await client.setFallthroughVariation(flagKey, env, originalFallthroughId);
+      try {
+        const parts: string[] = [];
+        if (originalFallthroughRollout !== null) parts.push('rollout');
+        else if (originalFallthroughId !== null) parts.push(`variation=${originalFallthroughId}`);
+        parts.push(originalOn ? 'ON' : 'OFF');
+        process.stderr.write(`  ${flagKey}: reverting → ${parts.join(' + ')}…\n`);
+
+        const result = await client.revertFlag(
+          flagKey, env, originalOn, originalFallthroughId, originalFallthroughRollout
+        );
+
+        const actualFtId = result.fallthroughVariationId;
+        const actualOn = result.on;
+        const onMatch = actualOn === originalOn;
+        const ftMatch = originalFallthroughRollout !== null
+          ? result.fallthroughRollout !== null
+          : actualFtId === originalFallthroughId;
+
+        if (onMatch && ftMatch) {
+          process.stderr.write(`  ${flagKey}: ✓ verified\n`);
+        } else {
+          process.stderr.write(
+            `  ${flagKey}: ⚠ MISMATCH — on=${actualOn} (want ${originalOn}), ` +
+            `ftId=${actualFtId} (want ${originalFallthroughId})\n`
+          );
+        }
+      } catch (err) {
+        process.stderr.write(`  ${flagKey}: FAILED — ${err}\n`);
+        throw err;
       }
-      await client.toggleFlag(flagKey, env, originalOn);
     }),
   );
+
+  const failed = results.filter(r => r.status === 'rejected');
+  if (failed.length === 0) {
+    process.stderr.write(`✓ All flags reverted.\n`);
+  }
+  reverting = false;
 }

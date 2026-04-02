@@ -14,6 +14,16 @@ import { revertSessionToggles } from './flag-session.js';
 
 type Screen = 'wizard' | 'execution';
 let runId = 0;
+const BATCH_COOLDOWN_MS = 10_000;
+const MAX_USER_RETRIES = 3;
+const RETRY_BACKOFF_MS = [15_000, 30_000, 60_000];
+
+function isRetryableError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('403') || msg.includes('502')
+    || msg.includes('VPN access required')
+    || msg.includes('CREDIT_CARD_INVALID');
+}
 
 async function loadPayloads(vertical: Vertical): Promise<any> {
   switch (vertical) {
@@ -38,63 +48,194 @@ async function runWebExecution(
   monitoringAbortRef: React.MutableRefObject<(() => void) | null>,
 ): Promise<void> {
   const { runWebEnrollmentFlow } = await import('../steps/web-flow.js');
+  const totalPerVertical = result.count;
+  const isBatch = totalPerVertical > 1 || result.verticals.length > 1;
+  let created = 0;
+  let skipped = 0;
 
-  for (let i = 0; i < result.count; i++) {
-    for (const vertical of result.verticals) {
-      if (result.count > 1 || result.verticals.length > 1) {
-        emitter.info(`── Run ${i + 1}/${result.count} · ${vertical} ──`);
+  for (const vertical of result.verticals) {
+    for (let i = 0; i < totalPerVertical; i++) {
+      if (isBatch) {
+        emitter.info(`── ${vertical} ${i + 1}/${totalPerVertical} ──`);
       }
 
-      const verticalConfig = VERTICAL_REGISTRY[vertical];
-      const recorder = new RunRecorder({
-        platform: 'web',
-        vertical,
-        tier: result.tier,
-        targetStep: result.step,
-      });
-      recorder.attach(emitter);
+      let succeeded = false;
 
-      const onStepComplete =
-        result.executionMode === 'step-through'
-          ? () => new Promise<void>((resolve) => { continueRef.current = resolve; })
-          : undefined;
-
-      try {
-        const { result: flowResult, monitoring } = await runWebEnrollmentFlow(
-          result.step,
-          result.tier,
-          envConfig,
-          verticalConfig,
-          verticalConfig.serviceId,
-          result.autoClose,
-          emitter,
-          onStepComplete,
-          recorder,
-        );
-        await recorder.finish({
-          email: flowResult.email,
-          password: flowResult.password,
-          memberId: flowResult.memberId,
-          vertical: flowResult.vertical,
-        }, { keepBrowserOpen: !!monitoring });
-
-        if (monitoring) {
-          emitter.monitoringStart();
-          const abortPromise = new Promise<void>(resolve => {
-            monitoringAbortRef.current = resolve;
-          });
-          await Promise.race([monitoring, abortPromise]);
-          monitoringAbortRef.current = null;
+      for (let attempt = 0; attempt <= MAX_USER_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const wait = RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1];
+          emitter.info(`⏳ Retry ${attempt}/${MAX_USER_RETRIES} — waiting ${wait / 1000}s…`);
+          await new Promise(resolve => setTimeout(resolve, wait));
+          emitter.info(`── Retrying ${vertical} ${i + 1}/${totalPerVertical} (attempt ${attempt + 1}) ──`);
         }
-      } catch (err) {
-        recorder.recordError('web-flow', err as Error);
-        await recorder.finish({ email: '', password: '' });
-        throw err;
+
+        const verticalConfig = VERTICAL_REGISTRY[vertical];
+        const recorder = new RunRecorder({
+          platform: 'web',
+          vertical,
+          tier: result.tier,
+          targetStep: result.step,
+        });
+        recorder.attach(emitter);
+
+        const onStepComplete =
+          result.executionMode === 'step-through'
+            ? () => new Promise<void>((resolve) => { continueRef.current = resolve; })
+            : undefined;
+
+        try {
+          const { result: flowResult, monitoring } = await runWebEnrollmentFlow(
+            result.step,
+            result.tier,
+            envConfig,
+            verticalConfig,
+            verticalConfig.serviceId,
+            result.autoClose,
+            emitter,
+            onStepComplete,
+            recorder,
+          );
+          await recorder.finish({
+            email: flowResult.email,
+            password: flowResult.password,
+            memberId: flowResult.memberId,
+            vertical: flowResult.vertical,
+          }, { keepBrowserOpen: !!monitoring });
+
+          emitter.userCreated({
+            email: flowResult.email,
+            password: flowResult.password,
+            memberId: flowResult.memberId,
+            vertical,
+            runIndex: created + 1,
+          });
+
+          if (monitoring) {
+            emitter.monitoringStart();
+            const abortPromise = new Promise<void>(resolve => {
+              monitoringAbortRef.current = resolve;
+            });
+            await Promise.race([monitoring, abortPromise]);
+            monitoringAbortRef.current = null;
+          }
+
+          emitter.contextUpdate('vertical', vertical);
+          succeeded = true;
+          created++;
+          break;
+        } catch (err) {
+          recorder.recordError('web-flow', err as Error);
+          await recorder.finish({ email: '', password: '' });
+          if (attempt < MAX_USER_RETRIES) {
+            emitter.info(`⚠ Error: ${(err as Error).message.slice(0, 120)}`);
+            continue;
+          }
+          emitter.info(`✗ ${vertical} ${i + 1}/${totalPerVertical} failed after ${MAX_USER_RETRIES + 1} attempts — skipping`);
+          skipped++;
+          break;
+        }
       }
 
-      emitter.contextUpdate('vertical', vertical);
+      const isLast = vertical === result.verticals[result.verticals.length - 1]
+        && i === totalPerVertical - 1;
+      if (!isLast && isBatch) {
+        emitter.info(`Cooling down ${BATCH_COOLDOWN_MS / 1000}s before next user…`);
+        await new Promise(resolve => setTimeout(resolve, BATCH_COOLDOWN_MS));
+      }
     }
   }
+
+  if (isBatch) {
+    emitter.info(`── Batch complete: ${created} created, ${skipped} skipped ──`);
+  }
+}
+
+async function runSingleMobileUser(
+  result: WizardResult,
+  envConfig: EnvConfig,
+  emitter: RunEmitter,
+  continueRef: React.MutableRefObject<(() => void) | null>,
+  vertical: Vertical,
+  runIndex: number,
+): Promise<{ ctx: ProviderContext; failed: boolean; error?: Error; failedStep?: string }> {
+  const { ApiClient } = await import('../api/client.js');
+  const { getStepsUpTo } = await import('../steps/registry.js');
+  const { authenticateClient } = await import('../api/auth.js');
+
+  const recorder = new RunRecorder({
+    platform: 'mobile',
+    vertical,
+    tier: result.tier,
+    targetStep: result.step,
+  });
+  recorder.attach(emitter);
+
+  const client = new ApiClient(envConfig.baseUrl, envConfig.apiKey);
+  client.setEmitter(emitter);
+
+  const verticalConfig = VERTICAL_REGISTRY[vertical];
+  const payloads = await loadPayloads(vertical);
+  const steps = getStepsUpTo(result.step, 'mobile');
+
+  const ctx: ProviderContext = {
+    email: '',
+    password: '',
+    memberId: '',
+    authToken: '',
+    tier: result.tier,
+    vertical: verticalConfig.serviceId,
+  };
+
+  let failed = false;
+  let stepError: Error | undefined;
+  let failedStepName: string | undefined;
+  for (const stepDef of steps) {
+    const description = STEP_DESCRIPTIONS[stepDef.name] ?? stepDef.name;
+    emitter.stepStart(stepDef.name, description);
+
+    try {
+      await stepDef.runner(client, ctx, payloads, envConfig, verticalConfig, emitter);
+      emitter.stepComplete(stepDef.name);
+
+      if (ctx.email) emitter.contextUpdate('email', ctx.email);
+      if (ctx.memberId) emitter.contextUpdate('memberId', ctx.memberId);
+
+      if (stepDef.name === 'account-created' && ctx.email) {
+        emitter.auth('Authenticating for GraphQL...');
+        try {
+          await authenticateClient(ctx.email, envConfig, client);
+          emitter.auth('Authenticated via session cookies');
+        } catch {
+          emitter.auth('⚠ Authentication failed — GraphQL steps may fail');
+        }
+      }
+
+      if (result.executionMode === 'step-through') {
+        await new Promise<void>((resolve) => { continueRef.current = resolve; });
+      }
+    } catch (err) {
+      stepError = err as Error;
+      failedStepName = stepDef.name;
+      recorder.recordError(stepDef.name, stepError);
+      emitter.stepError(stepDef.name, stepError.message);
+      failed = true;
+      break;
+    }
+  }
+
+  await recorder.finish(ctx);
+  if (!failed) {
+    emitter.userCreated({
+      email: ctx.email,
+      password: ctx.password,
+      memberId: ctx.memberId,
+      uuid: ctx.uuid,
+      vertical,
+      runIndex,
+    });
+  }
+  emitter.contextUpdate('vertical', vertical);
+  return { ctx, failed, error: stepError, failedStep: failedStepName };
 }
 
 async function runMobileExecution(
@@ -103,77 +244,65 @@ async function runMobileExecution(
   emitter: RunEmitter,
   continueRef: React.MutableRefObject<(() => void) | null>,
 ): Promise<void> {
-  const { ApiClient } = await import('../api/client.js');
-  const { getStepsUpTo } = await import('../steps/registry.js');
-  const { authenticateClient } = await import('../api/auth.js');
+  const totalPerVertical = result.count;
+  const isBatch = totalPerVertical > 1 || result.verticals.length > 1;
+  let created = 0;
+  let skipped = 0;
 
-  for (let i = 0; i < result.count; i++) {
-    for (const vertical of result.verticals) {
-      if (result.count > 1 || result.verticals.length > 1) {
-        emitter.info(`── Run ${i + 1}/${result.count} · ${vertical} ──`);
+  for (const vertical of result.verticals) {
+    for (let i = 0; i < totalPerVertical; i++) {
+      if (isBatch) {
+        emitter.info(`── ${vertical} ${i + 1}/${totalPerVertical} ──`);
       }
 
-      const recorder = new RunRecorder({
-        platform: 'mobile',
-        vertical,
-        tier: result.tier,
-        targetStep: result.step,
-      });
-      recorder.attach(emitter);
+      let succeeded = false;
 
-      const client = new ApiClient(envConfig.baseUrl, envConfig.apiKey);
-      client.setEmitter(emitter);
-
-      const verticalConfig = VERTICAL_REGISTRY[vertical];
-      const payloads = await loadPayloads(vertical);
-      const steps = getStepsUpTo(result.step, 'mobile');
-
-      const ctx: ProviderContext = {
-        email: '',
-        password: '',
-        memberId: '',
-        authToken: '',
-        tier: result.tier,
-        vertical: verticalConfig.serviceId,
-      };
-
-      let failed = false;
-      for (const stepDef of steps) {
-        const description = STEP_DESCRIPTIONS[stepDef.name] ?? stepDef.name;
-        emitter.stepStart(stepDef.name, description);
+      for (let attempt = 0; attempt <= MAX_USER_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const wait = RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1];
+          emitter.info(`⏳ Retry ${attempt}/${MAX_USER_RETRIES} — waiting ${wait / 1000}s…`);
+          await new Promise(resolve => setTimeout(resolve, wait));
+          emitter.info(`── Retrying ${vertical} ${i + 1}/${totalPerVertical} (attempt ${attempt + 1}) ──`);
+        }
 
         try {
-          await stepDef.runner(client, ctx, payloads, envConfig, verticalConfig, emitter);
-          emitter.stepComplete(stepDef.name);
-
-          if (ctx.email) emitter.contextUpdate('email', ctx.email);
-          if (ctx.memberId) emitter.contextUpdate('memberId', ctx.memberId);
-
-          if (stepDef.name === 'account-created' && ctx.email) {
-            emitter.auth('Authenticating for GraphQL...');
-            try {
-              await authenticateClient(ctx.email, envConfig, client);
-              emitter.auth('Authenticated via session cookies');
-            } catch {
-              emitter.auth('⚠ Authentication failed — GraphQL steps may fail');
+          const { failed, error } = await runSingleMobileUser(
+            result, envConfig, emitter, continueRef, vertical, created + 1,
+          );
+          if (failed) {
+            if (attempt < MAX_USER_RETRIES) {
+              emitter.info(`⚠ Failed: ${error?.message.slice(0, 120) ?? 'unknown error'}`);
+              continue;
             }
+            emitter.info(`✗ ${vertical} ${i + 1}/${totalPerVertical} failed after ${MAX_USER_RETRIES + 1} attempts — skipping`);
+            skipped++;
+            break;
           }
-
-          if (result.executionMode === 'step-through') {
-            await new Promise<void>((resolve) => { continueRef.current = resolve; });
-          }
+          succeeded = true;
+          created++;
+          break;
         } catch (err) {
-          recorder.recordError(stepDef.name, err as Error);
-          emitter.stepError(stepDef.name, (err as Error).message);
-          failed = true;
+          if (attempt < MAX_USER_RETRIES) {
+            emitter.info(`⚠ Error: ${(err as Error).message.slice(0, 120)}`);
+            continue;
+          }
+          emitter.info(`✗ ${vertical} ${i + 1}/${totalPerVertical} failed after ${MAX_USER_RETRIES + 1} attempts — skipping`);
+          skipped++;
           break;
         }
       }
 
-      await recorder.finish(ctx);
-      emitter.contextUpdate('vertical', vertical);
-      if (failed) return;
+      const isLast = vertical === result.verticals[result.verticals.length - 1]
+        && i === totalPerVertical - 1;
+      if (!isLast && isBatch) {
+        emitter.info(`Cooling down ${BATCH_COOLDOWN_MS / 1000}s before next user…`);
+        await new Promise(resolve => setTimeout(resolve, BATCH_COOLDOWN_MS));
+      }
     }
+  }
+
+  if (isBatch) {
+    emitter.info(`── Batch complete: ${created} created, ${skipped} skipped ──`);
   }
 }
 

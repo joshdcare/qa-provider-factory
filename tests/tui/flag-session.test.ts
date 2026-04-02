@@ -1,14 +1,10 @@
-import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const toggleFlagMock = vi.fn();
-const setFallthroughVariationMock = vi.fn();
-const restoreFallthroughRolloutMock = vi.fn();
+const revertFlagMock = vi.fn();
 
 vi.mock('../../src/api/launchdarkly.js', () => ({
   LDClient: class {
-    toggleFlag = toggleFlagMock;
-    setFallthroughVariation = setFallthroughVariationMock;
-    restoreFallthroughRollout = restoreFallthroughRolloutMock;
+    revertFlag = revertFlagMock;
   },
 }));
 
@@ -69,31 +65,23 @@ describe('flag-session', () => {
     beforeEach(() => {
       process.env.LD_API_TOKEN = 'test-token';
       process.env.LD_PROJECT_KEY = 'test-project';
-      toggleFlagMock.mockResolvedValue(undefined);
-      setFallthroughVariationMock.mockResolvedValue(undefined);
-      restoreFallthroughRolloutMock.mockResolvedValue(undefined);
+      revertFlagMock.mockResolvedValue({ key: 'x', name: 'x', on: true, variations: [], fallthroughVariationId: null, fallthroughRollout: null });
     });
 
-    it('calls setFallthroughVariation then toggleFlag per flag', async () => {
+    it('calls revertFlag with variation and on/off state', async () => {
       recordSnapshot('flag-a', true, 'v1', 'dev');
 
       await revertSessionToggles();
 
-      expect(setFallthroughVariationMock).toHaveBeenCalledWith('flag-a', 'dev', 'v1');
-      expect(toggleFlagMock).toHaveBeenCalledWith('flag-a', 'dev', true);
-
-      const ftOrder = setFallthroughVariationMock.mock.invocationCallOrder[0];
-      const toggleOrder = toggleFlagMock.mock.invocationCallOrder[0];
-      expect(ftOrder).toBeLessThan(toggleOrder);
+      expect(revertFlagMock).toHaveBeenCalledWith('flag-a', 'dev', true, 'v1', null);
     });
 
-    it('skips setFallthroughVariation when originalFallthroughId is null', async () => {
+    it('calls revertFlag with null fallthroughId when none was set', async () => {
       recordSnapshot('flag-a', false, null, 'dev');
 
       await revertSessionToggles();
 
-      expect(setFallthroughVariationMock).not.toHaveBeenCalled();
-      expect(toggleFlagMock).toHaveBeenCalledWith('flag-a', 'dev', false);
+      expect(revertFlagMock).toHaveBeenCalledWith('flag-a', 'dev', false, null, null);
     });
 
     it('clears session after revert', async () => {
@@ -109,22 +97,21 @@ describe('flag-session', () => {
       recordSnapshot('flag-a', true, 'v1', 'dev');
       recordSnapshot('flag-b', false, 'v2', 'stg');
 
-      toggleFlagMock.mockRejectedValueOnce(new Error('API error'));
-      toggleFlagMock.mockResolvedValueOnce(undefined);
+      revertFlagMock.mockRejectedValueOnce(new Error('API error'));
+      revertFlagMock.mockResolvedValueOnce({ key: 'x', name: 'x', on: false, variations: [], fallthroughVariationId: 'v2', fallthroughRollout: null });
 
       await revertSessionToggles();
 
-      expect(toggleFlagMock).toHaveBeenCalledTimes(2);
+      expect(revertFlagMock).toHaveBeenCalledTimes(2);
     });
 
-    it('calls restoreFallthroughRollout for rollout flags', async () => {
-      recordSnapshot('flag-r', true, null, 'dev', null, { weights: { v1: 50000, v2: 50000 } });
+    it('calls revertFlag with rollout for rollout flags', async () => {
+      const rollout = { weights: { v1: 50000, v2: 50000 } };
+      recordSnapshot('flag-r', true, null, 'dev', null, rollout);
 
       await revertSessionToggles();
 
-      expect(restoreFallthroughRolloutMock).toHaveBeenCalledWith('flag-r', 'dev', { weights: { v1: 50000, v2: 50000 } });
-      expect(setFallthroughVariationMock).not.toHaveBeenCalled();
-      expect(toggleFlagMock).toHaveBeenCalledWith('flag-r', 'dev', true);
+      expect(revertFlagMock).toHaveBeenCalledWith('flag-r', 'dev', true, null, rollout);
     });
   });
 });

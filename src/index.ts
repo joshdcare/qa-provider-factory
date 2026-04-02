@@ -14,6 +14,16 @@ import type { WebFlowResult } from './steps/web-flow.js';
 
 const BANNER = 'QA Provider Factory — create test providers at enrollment checkpoints.';
 
+function installFlagCleanupHandlers(revert: () => Promise<void>): void {
+  const handler = () => {
+    revert().finally(() => process.exit(130));
+  };
+  process.removeAllListeners('SIGINT');
+  process.removeAllListeners('SIGTERM');
+  process.on('SIGINT', handler);
+  process.on('SIGTERM', handler);
+}
+
 function createEnrollmentCommand(): Command {
   const cmd = new Command('run');
   cmd
@@ -83,7 +93,11 @@ function createRootProgram(): Command {
       const { render } = await import('ink');
       const React = await import('react');
       const { App } = await import('./tui/app.js');
-      render(React.createElement(App));
+      const { revertSessionToggles } = await import('./tui/flag-session.js');
+      installFlagCleanupHandlers(revertSessionToggles);
+      const instance = render(React.createElement(App));
+      try { await instance.waitUntilExit(); } catch { /* exit with error */ }
+      await revertSessionToggles();
     });
   program
     .command('flags')
@@ -98,7 +112,11 @@ function createRootProgram(): Command {
       const { render } = await import('ink');
       const React = await import('react');
       const { FlagBrowser } = await import('./tui/flag-browser.js');
-      render(React.createElement(FlagBrowser, { env: envVal }));
+      const { revertSessionToggles } = await import('./tui/flag-session.js');
+      installFlagCleanupHandlers(revertSessionToggles);
+      const instance = render(React.createElement(FlagBrowser, { env: envVal }));
+      try { await instance.waitUntilExit(); } catch { /* exit with error */ }
+      await revertSessionToggles();
     });
   program.addCommand(createEnrollmentCommand(), { isDefault: true, hidden: true });
   return program;

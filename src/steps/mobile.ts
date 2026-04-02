@@ -194,8 +194,24 @@ export async function mobileFullyEnrolled(
   console.log('  ✓ BGC pre-requisite endpoints called');
   emitter?.info('BGC pre-requisite endpoints called');
 
-  const pprid = await getVantivPPRID();
-  await createSitterBgCheck(client, ctx, payloads, pprid);
+  const BGC_MAX_ATTEMPTS = 3;
+  const BGC_RETRY_DELAY_MS = 10_000;
+  for (let attempt = 1; attempt <= BGC_MAX_ATTEMPTS; attempt++) {
+    try {
+      const pprid = await getVantivPPRID();
+      await createSitterBgCheck(client, ctx, payloads, pprid);
+      break;
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      const retryable = msg.includes('CREDIT_CARD_INVALID') || msg.includes('502');
+      if (attempt < BGC_MAX_ATTEMPTS && retryable) {
+        emitter?.info(`BGC payment failed (attempt ${attempt}/${BGC_MAX_ATTEMPTS}), retrying in ${BGC_RETRY_DELAY_MS / 1000}s…`);
+        await new Promise(r => setTimeout(r, BGC_RETRY_DELAY_MS));
+        continue;
+      }
+      throw err;
+    }
+  }
 
   await completeBgc(client, ctx, payloads, envConfig);
   console.log('  ✓ Fully enrolled');

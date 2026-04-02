@@ -14,8 +14,18 @@ export type RunEvent =
   | { type: 'db-query'; query: string }
   | { type: 'info'; message: string }
   | { type: 'context-update'; key: string; value: string }
+  | { type: 'user-created'; user: CreatedUser }
   | { type: 'monitoring-start' }
   | { type: 'run-complete' };
+
+export interface CreatedUser {
+  email: string;
+  password?: string;
+  memberId?: string;
+  uuid?: string;
+  vertical?: string;
+  runIndex: number;
+}
 
 export class RunEmitter extends EventEmitter {
   private _emit(event: RunEvent): void {
@@ -72,6 +82,10 @@ export class RunEmitter extends EventEmitter {
 
   contextUpdate(key: string, value: string): void {
     this._emit({ type: 'context-update', key, value });
+  }
+
+  userCreated(user: CreatedUser): void {
+    this._emit({ type: 'user-created', user });
   }
 
   monitoringStart(): void {

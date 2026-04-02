@@ -3,7 +3,7 @@ import { Box, Text, useInput, useApp } from 'ink';
 import { LDClient, type LDFlag, type LDVariation, type LDRollout } from '../api/launchdarkly.js';
 import type { Env } from '../types.js';
 import { COLORS } from './theme.js';
-import { recordSnapshot, getSessionToggleCount } from './flag-session.js';
+import { recordSnapshot, getSessionToggleCount, revertSessionToggles } from './flag-session.js';
 
 export interface FlagBrowserProps {
   env: Env;
@@ -54,6 +54,7 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
   const [toggledKey, setToggledKey] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'detail'>('list');
   const [detailFlag, setDetailFlag] = useState<LDFlag | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [variationIndex, setVariationIndex] = useState(0);
   const [settingVariation, setSettingVariation] = useState(false);
 
@@ -110,8 +111,9 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
         toggledTimeoutRef.current = null;
       }, 2000);
       await loadFlags();
-      if (view === 'detail') {
-        setDetailFlag(prev => prev ? { ...prev, on: newState } : prev);
+      if (view === 'detail' && activeFlag) {
+        const refreshed = await client.getFlag(activeFlag.key, env);
+        setDetailFlag(refreshed);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -136,10 +138,8 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
         toggledTimeoutRef.current = null;
       }, 2000);
       await loadFlags();
-      setDetailFlag(prev => {
-        if (!prev) return prev;
-        return { ...prev, fallthroughVariationId: variation.id, fallthroughRollout: null };
-      });
+      const refreshed = await client.getFlag(detailFlag.key, env);
+      setDetailFlag(refreshed);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -147,10 +147,38 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
     }
   }, [client, env, detailFlag, variationIndex, loadFlags, settingVariation]);
 
+  const openDetail = useCallback(async (flag: LDFlag) => {
+    if (!client) return;
+    setView('detail');
+    setDetailLoading(true);
+    setError(null);
+    try {
+      const full = await client.getFlag(flag.key, env);
+      setDetailFlag(full);
+      const ftIdx = full.variations.findIndex(v => v.id === full.fallthroughVariationId);
+      setVariationIndex(ftIdx >= 0 ? ftIdx : 0);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setDetailFlag(flag);
+      const ftIdx = flag.variations.findIndex(v => v.id === flag.fallthroughVariationId);
+      setVariationIndex(ftIdx >= 0 ? ftIdx : 0);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [client, env]);
+
+  const doExit = useCallback(() => {
+    if (onClose) {
+      onClose();
+    } else {
+      void revertSessionToggles().finally(() => exit());
+    }
+  }, [onClose, exit]);
+
   useInput((input, key) => {
     if (!config.ok) {
-      if (key.escape) { if (onClose) onClose(); else exit(); }
-      if (input === 'q' && onClose === undefined) exit();
+      if (key.escape) doExit();
+      if (input === 'q' && onClose === undefined) doExit();
       return;
     }
 
@@ -180,18 +208,14 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
       return;
     }
 
-    if (key.escape) { if (onClose) onClose(); else exit(); return; }
-    if (input === 'q' && onClose === undefined) { exit(); return; }
+    if (key.escape) { doExit(); return; }
+    if (input === 'q' && onClose === undefined) { doExit(); return; }
     if (key.upArrow) { setSelectedIndex(i => Math.max(0, i - 1)); return; }
     if (key.downArrow) { setSelectedIndex(i => Math.min(flags.length - 1, i + 1)); return; }
 
     if (key.return) {
       if (flags.length > 0) {
-        const flag = flags[selectedIndex];
-        setDetailFlag(flag);
-        const ftIdx = flag.variations.findIndex(v => v.id === flag.fallthroughVariationId);
-        setVariationIndex(ftIdx >= 0 ? ftIdx : 0);
-        setView('detail');
+        void openDetail(flags[selectedIndex]);
       }
       return;
     }
@@ -299,6 +323,10 @@ export function FlagBrowser({ env, onClose }: FlagBrowserProps): React.ReactElem
               </Box>
             )}
           </>
+        )}
+
+        {view === 'detail' && detailLoading && !detailFlag && (
+          <Text color={COLORS.stepRunning}>Loading flag details…</Text>
         )}
 
         {view === 'detail' && detailFlag && (
